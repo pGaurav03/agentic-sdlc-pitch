@@ -13,6 +13,7 @@ concurrency: 5
 # matrix: each browser gets its own parallel HyperExecute task
 # 7 tests × 4 browsers = 28 fully independent parallel sessions
 matrix:
+  os: [linux]
   browser:
     - chrome
     - firefox

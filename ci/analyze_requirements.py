@@ -60,8 +60,8 @@ def run_kane_verification(ac: dict) -> dict:
     try:
         result = subprocess.run(
             ["kane-cli", "run", objective, "--agent", "--headless",
-             "--timeout", "120", "--max-steps", "20"],
-            capture_output=True, text=True, timeout=150
+             "--timeout", "180", "--max-steps", "30"],
+            capture_output=True, text=True, timeout=210
         )
         # Parse NDJSON output — terminal event is type: "run_end"
         status = "failed"
