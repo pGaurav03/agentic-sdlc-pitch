@@ -1,0 +1,6 @@
+Feature: Product Search & Browse
+
+AC-004: User can search for a product by name and see relevant results on the search results page.
+AC-005: User can browse the product catalog and see product tiles with names and prices.
+AC-006: User can click a product tile to open the product detail page showing name, image, and price.
+AC-007: User can apply a category filter to narrow down the displayed products.

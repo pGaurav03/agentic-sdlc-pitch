@@ -1,0 +1,120 @@
+[
+  {
+    "id": "SC-001",
+    "test_case_id": "TC-001",
+    "requirement_id": "AC-001",
+    "title": "Add to cart updates counter instantly",
+    "function_name": "test_sc_001_add_to_cart_updates_counter_instantly",
+    "status": "active",
+    "source_description": "User can add a product to the cart from the product detail page and see the cart count update immediately.",
+    "steps": [
+      "Navigate to product page",
+      "Click Add to Cart",
+      "Assert cart count increments"
+    ],
+    "expected_result": "Cart count updates on product add",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  },
+  {
+    "id": "SC-002",
+    "test_case_id": "TC-002",
+    "requirement_id": "AC-002",
+    "title": "Cart dropdown shows item names and prices",
+    "function_name": "test_sc_002_cart_dropdown_shows_item_names_and_prices",
+    "status": "active",
+    "source_description": "User can open the cart dropdown and see all added items with their names and prices.",
+    "steps": [
+      "Add product to cart",
+      "Click cart icon",
+      "Assert items listed with names and prices"
+    ],
+    "expected_result": "Cart dropdown renders item details",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  },
+  {
+    "id": "SC-003",
+    "test_case_id": "TC-003",
+    "requirement_id": "AC-003",
+    "title": "Remove item recalculates cart total",
+    "function_name": "test_sc_003_remove_item_recalculates_cart_total",
+    "status": "active",
+    "source_description": "User can remove an item from the cart and the cart total updates correctly.",
+    "steps": [
+      "Add item to cart",
+      "Open cart",
+      "Click remove",
+      "Assert total updates"
+    ],
+    "expected_result": "Item removal triggers total recalculation",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  },
+  {
+    "id": "SC-004",
+    "test_case_id": "TC-004",
+    "requirement_id": "AC-004",
+    "title": "Search returns relevant product results",
+    "function_name": "test_sc_004_search_returns_relevant_product_results",
+    "status": "active",
+    "source_description": "User can search for a product by name and see relevant results on the search results page.",
+    "steps": [
+      "Type product name in search bar",
+      "Press Enter",
+      "Assert result tiles visible"
+    ],
+    "expected_result": "Search yields matching products",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  },
+  {
+    "id": "SC-005",
+    "test_case_id": "TC-005",
+    "requirement_id": "AC-005",
+    "title": "Catalog displays product tiles with pricing",
+    "function_name": "test_sc_005_catalog_displays_product_tiles_with_pricing",
+    "status": "active",
+    "source_description": "User can browse the product catalog and see product tiles with names and prices.",
+    "steps": [
+      "Open category page",
+      "Assert product tiles with names and prices visible"
+    ],
+    "expected_result": "Product catalog renders tiles",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  },
+  {
+    "id": "SC-006",
+    "test_case_id": "TC-006",
+    "requirement_id": "AC-006",
+    "title": "Product tile opens detail page with name, image, price",
+    "function_name": "test_sc_006_product_tile_opens_detail_page_with_name_image_pri",
+    "status": "active",
+    "source_description": "User can click a product tile to open the product detail page showing name, image, and price.",
+    "steps": [
+      "Click product tile",
+      "Assert detail page shows name, image, price"
+    ],
+    "expected_result": "Product detail page renders fully",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  },
+  {
+    "id": "SC-007",
+    "test_case_id": "TC-007",
+    "requirement_id": "AC-007",
+    "title": "Category filter narrows product list",
+    "function_name": "test_sc_007_category_filter_narrows_product_list",
+    "status": "active",
+    "source_description": "User can apply a category filter to narrow down the displayed products.",
+    "steps": [
+      "Open category",
+      "Click filter",
+      "Assert product count changes"
+    ],
+    "expected_result": "Filter narrows product listing",
+    "kane_url": "https://ecommerce-playground.lambdatest.io/",
+    "last_verified": "2026-06-24"
+  }
+]

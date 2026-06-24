@@ -1,0 +1,65 @@
+version: 0.1
+globalTimeout: 180
+testSuiteTimeout: 180
+testSuiteStep: 180
+
+runson: linux
+
+autosplit: true
+retryOnFailure: true
+maxRetries: 1
+concurrency: 5
+
+# BROWSERS drives pytest parametrize in conftest.py.
+# Each test runs once per browser → 4x coverage per scenario.
+env:
+  LT_USERNAME:        ${LT_USERNAME}
+  LT_ACCESS_KEY:      ${LT_ACCESS_KEY}
+  GITHUB_RUN_NUMBER:  ${GITHUB_RUN_NUMBER}
+  TARGET_URL:         "https://ecommerce-playground.lambdatest.io/"
+  BROWSERS:           "chrome,firefox,safari,android"
+
+cacheKey: '{{ checksum "requirements.txt" }}'
+cacheDirectories:
+  - .pip_cache
+  - ~/.cache/ms-playwright
+
+pre:
+  - mkdir -p reports
+  - pip install --cache-dir .pip_cache -r requirements.txt -q
+  - playwright install chromium firefox webkit
+
+runtime:
+  language: python
+  version: "3.11"
+
+testDiscovery:
+  type: raw
+  mode: dynamic
+  command: cat reports/pytest_selection.txt
+
+testRunnerCommand: >
+  PYTHONPATH=. pytest "$test" -v --tb=short -s
+  --html=reports/report.html
+  --junitxml=reports/junit.xml
+
+mergeArtifacts: true
+uploadArtefacts:
+  - name: TestReports
+    path:
+      - reports/
+
+report: true
+partialReports:
+  type: json
+  location: reports/
+  frameworkName: extent
+
+post:
+  - echo "HyperExecute Agentic SDLC run complete"
+
+jobLabel:
+  - agentic-sdlc
+  - lambdatest-pitch
+  - playwright
+  - multi-browser

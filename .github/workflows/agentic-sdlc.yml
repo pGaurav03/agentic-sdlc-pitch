@@ -1,0 +1,233 @@
+name: "Agentic SDLC — LambdaTest Pitch Pipeline"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agentic SDLC Pipeline powered by LambdaTest
+#
+#  Stage 1 · KaneAI Verification   — AI verifies every acceptance criterion
+#                                    against the live site using kane-cli
+#  Stages 2-7 · Orchestrator       — Sync scenarios → generate Playwright tests
+#                                    → select → HyperExecute (parallel) →
+#                                    fetch results via MCP → traceability →
+#                                    release verdict
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    paths:
+      - "requirements/**"
+      - "scenarios/**"
+      - "tests/**"
+      - "ci/**"
+      - "hyperexecute.yaml"
+      - ".github/workflows/agentic-sdlc.yml"
+  pull_request:
+    paths:
+      - "requirements/**"
+      - "scenarios/**"
+      - "tests/**"
+  workflow_dispatch:
+    inputs:
+      full_run:
+        description: "Run all active scenarios (not just new/updated)"
+        required: false
+        default: "true"
+        type: boolean
+      demo_mode:
+        description: "DEMO MODE — use pre-generated Kane results, no live Kane calls"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
+
+# ─── Stage 1: KaneAI — AI-driven acceptance criterion verification ───────────
+jobs:
+  kaneai-verify:
+    name: "Stage 1 · KaneAI Verification"
+    runs-on: ubuntu-latest
+    env:
+      DEMO_MODE: ${{ inputs.demo_mode || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache npm (Kane CLI)
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-kane-${{ runner.os }}-${{ env.NODE_VERSION }}
+          restore-keys: npm-kane-${{ runner.os }}-
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      # If requirements are unchanged, reuse cached Kane results — skip live calls
+      - name: Cache Kane results (by requirements hash)
+        id: kane-cache
+        uses: actions/cache@v4
+        with:
+          path: requirements/analyzed_requirements.json
+          key: kane-results-${{ hashFiles('requirements/*.txt') }}
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - name: Install Kane CLI
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
+        run: npm install -g @testmuai/kane-cli
+
+      - name: Configure Kane CLI
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
+        run: |
+          kane-cli config project ${{ secrets.KANE_PROJECT_ID }}
+          kane-cli config folder ${{ secrets.KANE_FOLDER_ID }}
+
+      # DEMO MODE — loads pre-seeded results in <5s, no live browser calls
+      - name: "KaneAI · DEMO MODE (pre-generated results)"
+        if: env.DEMO_MODE == 'true'
+        run: python ci/analyze_requirements.py --demo-mode
+
+      # Cache hit — requirements unchanged, reuse previous results
+      - name: "KaneAI · Cache hit (requirements unchanged)"
+        if: steps.kane-cache.outputs.cache-hit == 'true' && env.DEMO_MODE != 'true'
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          from pathlib import Path
+          data = json.loads(Path('requirements/analyzed_requirements.json').read_text())
+          passed = sum(1 for r in data if r.get('kane_status') == 'passed')
+          print(f"CACHE HIT — reusing Kane results: {len(data)} requirements, {passed} passed")
+          PYEOF
+        continue-on-error: true
+
+      # Cache miss — run live KaneAI verification
+      - name: "KaneAI · Live verification"
+        if: steps.kane-cache.outputs.cache-hit != 'true' && env.DEMO_MODE != 'true'
+        env:
+          LT_USERNAME:        ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY:      ${{ secrets.LT_ACCESS_KEY }}
+          GITHUB_RUN_NUMBER:  ${{ github.run_number }}
+        run: python ci/analyze_requirements.py
+
+      - name: Show Stage 1 summary
+        run: |
+          python - <<'PYEOF'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('requirements/analyzed_requirements.json').read_text())
+          print(f"{'ID':8} {'Status':<9} {'One-liner':<70}")
+          print('─' * 90)
+          for r in data:
+              print(f"{r['id']:8} {r['kane_status']:<9} {r.get('kane_one_liner','')[:70]}")
+          passed = sum(1 for r in data if r['kane_status'] == 'passed')
+          print(f"\nKaneAI result: {passed}/{len(data)} criteria verified")
+          PYEOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: analyzed-requirements
+          path: requirements/analyzed_requirements.json
+          retention-days: 30
+
+# ─── Stages 2-7: Orchestrator ────────────────────────────────────────────────
+  orchestrate:
+    name: "Stages 2-7 · Orchestrator"
+    needs: kaneai-verify
+    runs-on: ubuntu-latest
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - name: Ensure reports directory
+        run: mkdir -p reports
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: analyzed-requirements
+          path: requirements
+
+      - name: Validate Stage 1 artifact
+        run: |
+          python - <<'PYEOF'
+          import json, sys
+          from pathlib import Path
+          p = Path('requirements/analyzed_requirements.json')
+          if not p.exists():
+              print("ERROR: analyzed_requirements.json not found", file=sys.stderr); sys.exit(1)
+          data = json.loads(p.read_text())
+          assert isinstance(data, list) and len(data) > 0, "Artifact is empty"
+          print(f"Stage 1 artifact valid — {len(data)} requirements")
+          PYEOF
+
+      - name: Download HyperExecute CLI
+        run: |
+          curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+          chmod +x hyperexecute
+          if ! file hyperexecute | grep -q "ELF"; then
+            echo "ERROR: HyperExecute binary not valid"; head -c 200 hyperexecute; exit 1
+          fi
+          ./hyperexecute --version
+
+      - name: "Stages 2-7 · Run orchestrator"
+        env:
+          LT_USERNAME:        ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY:      ${{ secrets.LT_ACCESS_KEY }}
+          TARGET_URL:         "https://ecommerce-playground.lambdatest.io/"
+          GITHUB_RUN_NUMBER:  ${{ github.run_number }}
+          FULL_RUN:           ${{ inputs.full_run || 'true' }}
+        run: python ci/agent.py
+
+      - name: Generate pipeline metrics
+        if: always()
+        run: python ci/pipeline_metrics.py
+
+      - name: Show release verdict
+        if: always()
+        run: |
+          echo "====== RELEASE VERDICT ======"
+          cat reports/release_recommendation.md 2>/dev/null || echo "(not generated)"
+
+      - name: Write GitHub Actions Step Summary
+        if: always()
+        run: python ci/write_github_summary.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-reports
+          path: |
+            reports/
+            scenarios/scenarios.json
+            tests/playwright/test_scenarios.py
+          retention-days: 30

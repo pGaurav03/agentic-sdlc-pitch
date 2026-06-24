@@ -1,0 +1,9 @@
+[
+  {"scenario_id": "SC-001", "test_case_id": "TC-001", "objective": "Add to cart updates counter instantly"},
+  {"scenario_id": "SC-002", "test_case_id": "TC-002", "objective": "Cart dropdown shows item names and prices"},
+  {"scenario_id": "SC-003", "test_case_id": "TC-003", "objective": "Remove item recalculates cart total"},
+  {"scenario_id": "SC-004", "test_case_id": "TC-004", "objective": "Search returns relevant product results"},
+  {"scenario_id": "SC-005", "test_case_id": "TC-005", "objective": "Catalog displays product tiles with pricing"},
+  {"scenario_id": "SC-006", "test_case_id": "TC-006", "objective": "Product tile opens detail page with name, image, price"},
+  {"scenario_id": "SC-007", "test_case_id": "TC-007", "objective": "Category filter narrows product list"}
+]

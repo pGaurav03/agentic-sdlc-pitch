@@ -1,0 +1,10 @@
+# Virtual env & cache
+.venv/
+__pycache__/
+*.pyc
+.pip_cache/
+.DS_Store
+
+# Generated at runtime — do not commit
+reports/
+tests/playwright/test_scenarios.py

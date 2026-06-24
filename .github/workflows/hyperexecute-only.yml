@@ -1,0 +1,120 @@
+name: "HyperExecute Only (Re-run Regression)"
+
+# Run Stage 5 (HyperExecute) independently — useful when:
+#  - Tests flaked and you want to re-run without re-verifying Kane
+#  - Debugging HyperExecute submission issues
+#  - Demoing just the execution speed (5 VMs, 4 browsers)
+
+on:
+  workflow_dispatch:
+    inputs:
+      full_run:
+        description: "Run all active scenarios (true) or new/updated only (false)"
+        required: false
+        default: "true"
+        type: boolean
+      concurrency:
+        description: "HyperExecute VM concurrency"
+        required: false
+        default: "5"
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  hyperexecute-rerun:
+    name: "HyperExecute Regression (${{ inputs.concurrency || '5' }} VMs)"
+    runs-on: ubuntu-latest
+    env:
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      # Try to grab Kane results from a previous run first
+      - name: Download analyzed-requirements (from previous pipeline run)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: analyzed-requirements
+          path: requirements
+
+      - name: Ensure reports directory
+        run: mkdir -p reports
+
+      - name: Sync scenarios + generate + select tests
+        env:
+          FULL_RUN: ${{ inputs.full_run || 'true' }}
+        run: |
+          python - <<'PYEOF'
+          import sys, json, re
+          from pathlib import Path
+          sys.path.insert(0, 'ci')
+          from agent import sync_scenarios, generate_tests, write_test_selection, _validate_syntax
+
+          req_path = Path('requirements/analyzed_requirements.json')
+          if not req_path.exists():
+              print("No analyzed_requirements.json — using seeded scenarios.json as-is")
+              requirements = []
+          else:
+              requirements = json.loads(req_path.read_text())
+
+          sc_path  = Path('scenarios/scenarios.json')
+          existing = json.loads(sc_path.read_text()) if sc_path.exists() and sc_path.stat().st_size > 2 else []
+
+          scenarios = sync_scenarios(requirements, existing) if requirements else existing
+          sc_path.write_text(json.dumps(scenarios, indent=2), encoding='utf-8')
+          generate_tests(scenarios)
+          if not _validate_syntax('tests/playwright/test_scenarios.py'):
+              sys.exit(1)
+          write_test_selection(scenarios)
+          print("Test selection:")
+          print(Path('reports/pytest_selection.txt').read_text())
+          PYEOF
+
+      - name: Download HyperExecute CLI
+        run: |
+          curl -fsSL -O https://downloads.lambdatest.com/hyperexecute/linux/hyperexecute
+          chmod +x hyperexecute
+          if ! file hyperexecute | grep -q "ELF"; then
+            echo "ERROR: Invalid HE binary"; exit 1
+          fi
+          ./hyperexecute --version
+
+      - name: Submit to HyperExecute
+        env:
+          LT_USERNAME:       ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY:     ${{ secrets.LT_ACCESS_KEY }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          FULL_RUN:          ${{ inputs.full_run || 'true' }}
+        run: |
+          python - <<'PYEOF'
+          import sys
+          sys.path.insert(0, 'ci')
+          from agent import run_hyperexecute
+          job_id = run_hyperexecute()
+          print(f"Job ID: {job_id or 'N/A'}")
+          if job_id:
+              print(f"Dashboard: https://hyperexecute.lambdatest.com/hyperexecute/task?jobId={job_id}")
+          PYEOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hyperexecute-rerun-reports
+          path: reports/
+          retention-days: 14
