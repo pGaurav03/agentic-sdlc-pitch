@@ -1,10 +1,17 @@
 # Virtual env & cache
 .venv/
+.venv_*/
 __pycache__/
 *.pyc
 .pip_cache/
 .DS_Store
 
+# HyperExecute CLI binary & local artifacts
+hyperexecute
+hyperexecute.exe
+hyperexecute-cli.log
+.hyperexecute/
+.updatedhyperexecute.yaml
+
 # Generated at runtime — do not commit
 reports/
-tests/playwright/test_scenarios.py

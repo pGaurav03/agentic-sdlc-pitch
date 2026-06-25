@@ -22,23 +22,17 @@ env:
 cacheKey: '{{ checksum "requirements-he.txt" }}'
 cacheDirectories:
   - .pip_cache
-  - ~/.cache/ms-playwright
 
 pre:
   - mkdir -p reports
-  - python3 -m pip install --cache-dir .pip_cache -r requirements-he.txt
+  - pip3 install --cache-dir .pip_cache -r requirements-he.txt
   - python3 -c "from playwright.sync_api import sync_playwright; print('[pre] playwright OK')"
-  - python3 -m playwright install chromium firefox
   - python3 ci/generate_he_tests.py
-
-runtime:
-  language: python
-  version: "3.11"
 
 testDiscovery:
   type: raw
   mode: dynamic
-  command: PYTHONPATH=. python3 -m pytest tests/playwright/test_scenarios.py --collect-only -q --no-header 2>/dev/null | grep "::"
+  command: PYTHONPATH=. python3 -m pytest tests/playwright/test_scenarios.py --collect-only -q --no-header | grep "::"
 
 testRunnerCommand: >
   PYTHONPATH=. python3 -m pytest "$test" -v --tb=short -s

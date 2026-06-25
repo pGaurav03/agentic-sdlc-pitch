@@ -48,7 +48,7 @@ _JOB_ID_RE    = re.compile(r"jobId=([\w-]+)|job[_\s-]?id[:\s=]+([0-9a-f-]{36})",
 # ── Playwright test bodies keyed by scenario ID ──────────────────────────────
 _ECOM = "https://ecommerce-playground.lambdatest.io"
 
-PLAYWRIGHT_BODIES: dict[str, str] = {
+PLAYWRIGHT_BODIES = {
     "SC-001": (
         f'    page.goto("{_ECOM}/")\n'
         '    page.wait_for_load_state("load", timeout=30000)\n'
