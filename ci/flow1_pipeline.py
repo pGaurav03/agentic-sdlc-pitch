@@ -192,11 +192,28 @@ def run_kane(sc):
     if status == "passed":
         log.success(sc_id)
     else:
-        # Log raw output to help diagnose CI failures
-        raw = (result.stdout + result.stderr).strip()
-        failure_detail = raw[:500] if raw else f"No output (exit code {result.returncode})"
-        log.failure(sc_id, detail=failure_detail)
+        # Collect all event types + the run_end payload for diagnosis
+        events_seen = []
+        run_end_ev  = None
+        for line in combined.splitlines():
+            try:
+                ev = json.loads(line)
+                events_seen.append(ev.get("type", "?"))
+                if ev.get("type") == "run_end":
+                    run_end_ev = ev
+            except Exception:
+                continue
+
         log.info(f"[{sc_id}] exit={result.returncode} stdout={len(result.stdout)}b stderr={len(result.stderr)}b")
+        log.info(f"[{sc_id}] events: {events_seen}")
+        if run_end_ev:
+            log.info(f"[{sc_id}] run_end payload: {json.dumps(run_end_ev)[:400]}")
+
+        # Log the LAST 1000 chars — errors/run_end always appear at the end
+        raw = (result.stdout + result.stderr).strip()
+        tail = raw[-1000:] if len(raw) > 1000 else raw
+        failure_detail = tail if raw else f"No output (exit code {result.returncode})"
+        log.failure(sc_id, detail=failure_detail)
 
     return status, session_dir, failure_detail
 
