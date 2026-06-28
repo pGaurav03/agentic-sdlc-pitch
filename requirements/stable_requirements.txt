@@ -1,0 +1,41 @@
+# AutomationExercise — Stable E2E Requirements
+# Scope: automationexercise.com product browsing and cart flows
+# Excluded: cart removal empty-state and add-to-cart success modal (UI timing issues)
+
+## Product Catalog
+
+REQ-001: Product Catalog Display
+The product catalog page (/products) must display multiple product tiles. Each tile must
+show the product name and price so the user can browse available items at a glance.
+
+REQ-002: Product Detail Page
+Clicking the "View Product" link on any product tile must open the product detail page.
+The detail page must display the product name, at least one product image, and the
+product price.
+
+## Search
+
+REQ-003: Keyword Search
+Users must be able to search for products by name using the search bar on the products
+page. Submitting a search query must show a results page containing only product tiles
+relevant to the keyword entered (e.g. searching "Blue Top" shows Blue Top results).
+
+## Shopping Cart
+
+REQ-004: Add to Cart — Counter Update
+Adding a product to the cart from the product detail page must immediately increment
+the cart item counter displayed in the top navigation bar. The counter must reflect
+the updated quantity without requiring a page reload.
+
+REQ-005: Cart Page — Item Details
+After adding a product and navigating to the cart page (/view_cart), the cart must
+display the product name and price for each added item so the user can review their
+selection before checkout.
+
+## Navigation and Filtering
+
+REQ-006: Category Filter
+Users must be able to filter products by category using the left sidebar. Clicking a
+top-level category (e.g. "Women") and then a sub-category (e.g. "Dress") must update
+the product grid to show only matching items and display the selected category name
+as the page heading.

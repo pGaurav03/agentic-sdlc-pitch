@@ -11,10 +11,14 @@ Usage:
     LT_ACCESS_KEY=<key> python3 ci/flow1_pipeline.py
     python3 ci/flow1_pipeline.py --sc SC-001   # single SC for testing
 """
+import base64
 import json
 import os
 import subprocess
 import sys
+import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 # Add ci/ to path for local import
@@ -22,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from transform_kane_export import transform
 from pipeline_logger import get_logger
 from self_heal import load_history, save_history, heal_objectives
-from traceability import record_he_job, run_traceability
+from traceability import record_he_job, run_traceability, record_tm_test_cases_with_sc
 from rca import run_rca, FLOW1_BUILD_NAME
 
 log = get_logger("flow1")
@@ -36,6 +40,9 @@ KANE_DIR      = Path("tests/playwright/kane")
 PROJECT_ROOT  = Path(__file__).parent.parent   # ci/ → project root
 HE_BINARY     = PROJECT_ROOT / "hyperexecute"
 HE_CONFIG     = PROJECT_ROOT / "hyperexecute.yaml"
+
+TM_API     = "https://test-manager-api.lambdatest.com/api/v1"
+PROJECT_ID = "01KVXJ82AKT83GWJNFZTQVMNRQ"
 
 # ── SC objectives — loaded from Claude-generated objectives.json if present ───
 _OBJECTIVES_FILE = Path(__file__).parent / "objectives.json"
@@ -95,6 +102,56 @@ else:
             ),
         },
     ]
+
+
+# ── TM helpers (record test case links after Phase 1) ────────────────────────
+
+def _tm_auth():
+    return "Basic " + base64.b64encode(f"{LT_USERNAME}:{LT_ACCESS_KEY}".encode()).decode()
+
+
+def get_testcase_id_from_session(session_id):
+    if not session_id:
+        return None
+    sf = Path.home() / ".testmuai" / "kaneai" / "sessions" / session_id / "session.json"
+    if sf.exists():
+        return json.loads(sf.read_text()).get("testcase_id")
+    return None
+
+
+def fetch_tm_test_cases_by_ids(testcase_ids: list) -> list:
+    if not testcase_ids or not LT_ACCESS_KEY:
+        return []
+    id_set = set(testcase_ids)
+    found  = []
+    page   = 1
+    while True:
+        req = urllib.request.Request(
+            f"{TM_API}/projects/{PROJECT_ID}/test-cases?per_page=50&page={page}",
+            headers={"Authorization": _tm_auth(), "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+        except Exception as e:
+            log.warning(f"[tm] fetch error: {e}")
+            break
+        for tc in data.get("data", []):
+            tc_id = tc.get("test_case_id", "")
+            if tc_id in id_set:
+                found.append({
+                    "test_case_id": tc_id,
+                    "title":        tc.get("title", tc_id),
+                    "internal_id":  tc.get("internal_id", ""),
+                })
+                id_set.discard(tc_id)
+                if not id_set:
+                    return found
+        pagination = data.get("pagination", {})
+        if page >= pagination.get("last_page", 1):
+            break
+        page += 1
+    return found
 
 
 # ── Phase 1: Run kane-cli ─────────────────────────────────────────────────────
@@ -287,6 +344,22 @@ if __name__ == "__main__":
         last_run_file = Path(__file__).parent / "last_run.json"
         last_run_file.write_text(json.dumps(results, indent=2))
         log.info(f"Saved last_run.json — Flow 2 can use with --skip-phase1")
+
+        # Record TM test case IDs so traceability matrix shows TC links
+        kane_results_for_tm = []
+        for r in results:
+            sd  = r.get("session_dir")
+            sid = Path(sd).name if sd else None
+            kane_results_for_tm.append({"sc_id": r["id"], "testcase_id": get_testcase_id_from_session(sid)})
+
+        testcase_ids = [r["testcase_id"] for r in kane_results_for_tm if r.get("testcase_id")]
+        if testcase_ids:
+            log.info(f"[tm] Waiting 15s for TM to index {len(testcase_ids)} test case(s)...")
+            time.sleep(15)
+            test_cases = fetch_tm_test_cases_by_ids(testcase_ids)
+            if test_cases:
+                record_tm_test_cases_with_sc(kane_results_for_tm, test_cases)
+                log.info(f"[tm] Recorded {len(test_cases)} TM test case link(s)")
 
     written = phase2_transform_and_write(results)
 
