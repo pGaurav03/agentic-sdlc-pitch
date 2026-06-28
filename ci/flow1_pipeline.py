@@ -237,8 +237,8 @@ if __name__ == "__main__":
         healed = heal_objectives(history, log)
         if healed:
             # Reload SC_OBJECTIVES after heal (objectives.json was updated)
-            global SC_OBJECTIVES
-            SC_OBJECTIVES = json.loads(_OBJECTIVES_FILE.read_text()) if _OBJECTIVES_FILE.exists() else SC_OBJECTIVES
+            if _OBJECTIVES_FILE.exists():
+                SC_OBJECTIVES = json.loads(_OBJECTIVES_FILE.read_text())
 
     objectives = SC_OBJECTIVES
     if args.sc:
