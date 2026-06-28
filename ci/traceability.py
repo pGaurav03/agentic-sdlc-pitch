@@ -142,8 +142,7 @@ def write_markdown(matrix: dict) -> str:
     for r in rows:
         tm_id   = r.get("tm_id", "")
         sc_name = r.get("sc_name", r["sc_id"])
-        # Scenario Name: hyperlink to TM test case page if available
-        sc_cell = f"[{sc_name[:45]}]({TM_PROJECT_URL}/{tm_id})" if tm_id else sc_name[:45]
+        sc_cell = sc_name[:45]
         # TM TC column: hyperlinked TC-NNNNN label or pending
         tc_cell = r.get("tc_link") or ("pending" if not tm_id else r["tc_internal"])
         # RCA: prefer LT AI RCA, fall back to kane-cli failure detail
