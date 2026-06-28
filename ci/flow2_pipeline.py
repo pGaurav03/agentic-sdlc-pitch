@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from pipeline_logger import get_logger
 from self_heal import load_history, save_history, heal_objectives
+from traceability import record_he_job, record_tm_test_cases_with_sc, run_traceability
 
 log = get_logger("flow2")
 
@@ -422,6 +423,16 @@ if __name__ == "__main__":
         save_history(kane_results, flow="flow2")
 
     test_cases = phase2_fetch_test_cases(kane_results)
-    phase3_trigger_he(test_cases)
+
+    # Persist TM test case IDs for traceability (sc_id → TM ULID + TC number)
+    if not args.skip_phase1:
+        record_tm_test_cases_with_sc(kane_results, test_cases)
+
+    job_id, job_link = phase3_trigger_he(test_cases)
+
+    # Persist HE job + build traceability matrix
+    if job_id:
+        record_he_job("flow2", job_id, job_link)
+    run_traceability(log)
 
     log.info("Done — monitor at: https://hyperexecute.lambdatest.com/")

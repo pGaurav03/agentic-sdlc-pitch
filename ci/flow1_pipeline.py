@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from transform_kane_export import transform
 from pipeline_logger import get_logger
 from self_heal import load_history, save_history, heal_objectives
+from traceability import record_he_job, run_traceability
 
 log = get_logger("flow1")
 
@@ -194,12 +195,27 @@ def phase3_trigger_he():
     cmd = [str(HE_BINARY), "--user", LT_USERNAME, "--key", LT_ACCESS_KEY,
            "--config", str(HE_CONFIG)]
     log.info(f"Running: hyperexecute --user {LT_USERNAME} --key *** --config {HE_CONFIG.name}")
-    result = subprocess.run(cmd, capture_output=False)
+
+    # Capture output to extract job ID while still streaming to console
+    import re
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    sys.stdout.write(result.stdout)   # stream to console
+
+    job_id = job_link = None
+    for line in result.stdout.splitlines():
+        m = re.search(r'jobId=([a-f0-9\-]{36})', line)
+        if m:
+            job_id = m.group(1)
+            job_link = f"https://hyperexecute.lambdatest.com/hyperexecute/task?jobId={job_id}"
 
     if result.returncode != 0:
         log.error(f"HE job finished with exit code {result.returncode}")
     else:
         log.info("HE job completed successfully")
+        if job_link:
+            log.info(f"Job link: {job_link}")
+
+    return job_id, job_link
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -262,4 +278,9 @@ if __name__ == "__main__":
         log.error("No test files written — aborting HE trigger")
         sys.exit(1)
 
-    phase3_trigger_he()
+    job_id, job_link = phase3_trigger_he()
+
+    # Persist HE job + build live traceability matrix → reports/demo_cache.json
+    if job_id:
+        record_he_job("flow1", job_id, job_link)
+    run_traceability(log)
