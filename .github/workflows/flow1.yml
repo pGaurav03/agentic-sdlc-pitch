@@ -14,6 +14,10 @@ on:
       - ".github/workflows/flow1.yml"
   workflow_dispatch:
     inputs:
+      requirements_url:
+        description: "URL to requirements doc (Google Doc export, Notion, Dropbox, raw URL). Leave blank to use existing requirements/ files."
+        required: false
+        type: string
       from_step:
         description: "Start from step (1=analyze reqs, 2=gen objectives, 3=flow1 pipeline)"
         required: false
@@ -85,7 +89,31 @@ jobs:
           ./hyperexecute --version
 
       - name: Ensure output directories
-        run: mkdir -p reports logs
+        run: mkdir -p reports logs requirements
+
+      - name: "Download requirements doc from URL (if provided)"
+        if: ${{ inputs.requirements_url != '' }}
+        run: |
+          URL="${{ inputs.requirements_url }}"
+          echo "Downloading requirements from: $URL"
+
+          # Convert Google Docs share URL → plain text export
+          if echo "$URL" | grep -q "docs.google.com/document"; then
+            DOC_ID=$(echo "$URL" | grep -oP '(?<=/d/)[^/]+')
+            URL="https://docs.google.com/document/d/${DOC_ID}/export?format=txt"
+            echo "Converted to Google Docs export URL"
+          fi
+
+          # Convert Notion public page → use as-is (HTML, Claude handles it)
+          # Convert Dropbox share → direct download
+          if echo "$URL" | grep -q "dropbox.com"; then
+            URL=$(echo "$URL" | sed 's/?dl=0/?dl=1/g' | sed 's/&dl=0/\&dl=1/g')
+          fi
+
+          FILENAME="requirements/uploaded_$(date +%Y%m%d_%H%M%S).txt"
+          curl -fsSL "$URL" -o "$FILENAME"
+          echo "Saved to $FILENAME ($(wc -c < $FILENAME) bytes)"
+          head -20 "$FILENAME"
 
       - name: "Step 1 — Analyze requirements (Claude)"
         if: ${{ inputs.from_step == '' || inputs.from_step <= '1' }}
