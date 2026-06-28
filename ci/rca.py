@@ -245,10 +245,32 @@ def update_history_from_he(build_name: str, flow: str = "flow2", log=None) -> di
 
 # ── Main public function ──────────────────────────────────────────────────────
 
+def _poll_session_rca(session_id: str, sc_id: str, timeout: int = 120, interval: int = 10, log=None) -> str:
+    """
+    Poll per-session RCA endpoint until data arrives or timeout.
+    Returns rca text (empty string if timeout reached without data).
+    """
+    _log = lambda m: (log.info(m) if log else print(m))
+    elapsed = 0
+    while elapsed < timeout:
+        raw = _fetch_session_rca(session_id)
+        if raw:
+            _log(f"[rca] {sc_id} RCA received after {elapsed}s")
+            return raw
+        _log(f"[rca] {sc_id} RCA not ready (waited {elapsed}s) — retrying in {interval}s...")
+        time.sleep(interval)
+        elapsed += interval
+    _log(f"[rca] {sc_id} RCA timed out after {timeout}s — no data available")
+    return ""
+
+
 def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None) -> dict:
     """
     Full RCA pipeline for one HE job.
     Returns {sc_id: rca_text} and saves ci/rca_results.json.
+
+    For each failed session, polls the per-session RCA endpoint until
+    data arrives (up to 120s) rather than using a fixed sleep.
     """
     if not LT_ACCESS_KEY or not job_id:
         if log:
@@ -261,17 +283,25 @@ def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None) -> dict:
     # Trigger RCA generation
     triggered = trigger_rca_for_job(job_id, log)
 
+    # Brief initial wait to let LT AI start processing
     if triggered > 0:
-        wait_secs = 30
-        msg = f"[rca] Waiting {wait_secs}s for AI RCA generation..."
+        wait_secs = 10
+        msg = f"[rca] Waiting {wait_secs}s for AI RCA generation to start..."
         if log:
             log.info(msg)
         else:
             print(msg)
         time.sleep(wait_secs)
 
-    # Fetch sessions for this build
-    sessions = fetch_sessions_for_build(build_name, log)
+    # Fetch sessions for this build (retry up to 3x if not indexed yet)
+    sessions = []
+    for attempt in range(1, 4):
+        sessions = fetch_sessions_for_build(build_name, log)
+        if sessions:
+            break
+        msg = f"[rca] No sessions found for build '{build_name}' (attempt {attempt}/3) — waiting 15s..."
+        print(msg) if not log else log.warning(msg)
+        time.sleep(15)
 
     results = dict(existing)
     for s in sessions:
@@ -281,7 +311,8 @@ def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None) -> dict:
         if not sc_id:
             continue
 
-        raw = _fetch_session_rca(s["session_id"])
+        # Poll until RCA data arrives for this failed session (up to 2 min)
+        raw = _poll_session_rca(s["session_id"], sc_id, timeout=120, interval=10, log=log)
         if not raw:
             continue
 
