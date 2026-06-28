@@ -1,178 +1,148 @@
 #!/usr/bin/env python3
 """
-Stage 1 — KaneAI Verification.
-Parses requirements/*.txt, builds acceptance criteria, runs kane-cli
-to verify each criterion against the live site, writes analyzed_requirements.json.
-Kane's --code-export output is captured and stored as kane_code per AC.
+Step 1 — Requirements Analysis (Claude-powered)
+
+Reads ALL files in requirements/ (.txt, .md — any format, any structure)
+and uses Claude to extract structured Acceptance Criteria.
+
+No manual formatting required. Drop any requirements doc → Claude extracts ACs.
+
+Output: requirements/analyzed_requirements.json
+[{
+  "id": "AC-001",
+  "description": "...",
+  "kane_steps": ["...", "..."],
+  "kane_one_liner": "..."
+}]
+
+Usage:
+    ANTHROPIC_API_KEY=<key> python3 ci/analyze_requirements.py
+    python3 ci/analyze_requirements.py --print   # also print extracted ACs
 """
-import argparse
 import json
 import os
-import re
-import subprocess
 import sys
 from pathlib import Path
 
-TARGET_URL = os.environ.get("TARGET_URL", "https://ecommerce-playground.lambdatest.io/")
-RUN_NUMBER = os.environ.get("GITHUB_RUN_NUMBER", "local")
+PROJECT_ROOT = Path(__file__).parent.parent
+REQUIREMENTS_DIR = PROJECT_ROOT / "requirements"
+OUTPUT_FILE = REQUIREMENTS_DIR / "analyzed_requirements.json"
 
-# Pre-seeded demo results for DEMO_MODE — no live Kane calls needed
-_DEMO_RESULTS = [
-    {"id": "AC-001", "description": "User can add a product to the cart from the product detail page and see the cart count update immediately.", "kane_status": "passed", "kane_one_liner": "Add to cart updates counter instantly", "kane_steps": ["Navigate to product page", "Click Add to Cart", "Assert cart count increments"], "kane_summary": "Cart count updates on product add", "kane_code": ""},
-    {"id": "AC-002", "description": "User can open the cart dropdown and see all added items with their names and prices.", "kane_status": "passed", "kane_one_liner": "Cart dropdown shows item names and prices", "kane_steps": ["Add product to cart", "Click cart icon", "Assert items listed with names and prices"], "kane_summary": "Cart dropdown renders item details", "kane_code": ""},
-    {"id": "AC-003", "description": "User can remove an item from the cart and the cart total updates correctly.", "kane_status": "passed", "kane_one_liner": "Remove item recalculates cart total", "kane_steps": ["Add item to cart", "Open cart", "Click remove", "Assert total updates"], "kane_summary": "Item removal triggers total recalculation", "kane_code": ""},
-    {"id": "AC-004", "description": "User can search for a product by name and see relevant results on the search results page.", "kane_status": "passed", "kane_one_liner": "Search returns relevant product results", "kane_steps": ["Type product name in search bar", "Press Enter", "Assert result tiles visible"], "kane_summary": "Search yields matching products", "kane_code": ""},
-    {"id": "AC-005", "description": "User can browse the product catalog and see product tiles with names and prices.", "kane_status": "passed", "kane_one_liner": "Catalog displays product tiles with pricing", "kane_steps": ["Open category page", "Assert product tiles with names and prices visible"], "kane_summary": "Product catalog renders tiles", "kane_code": ""},
-    {"id": "AC-006", "description": "User can click a product tile to open the product detail page showing name, image, and price.", "kane_status": "passed", "kane_one_liner": "Product tile opens detail page with name, image, price", "kane_steps": ["Click product tile", "Assert detail page shows name, image, price"], "kane_summary": "Product detail page renders fully", "kane_code": ""},
-    {"id": "AC-007", "description": "User can apply a category filter to narrow down the displayed products.", "kane_status": "passed", "kane_one_liner": "Category filter narrows product list", "kane_steps": ["Open category", "Click filter", "Assert product count changes"], "kane_summary": "Filter narrows product listing", "kane_code": ""},
-    {"id": "AC-008", "description": "User sees a success message after adding a product to the cart.", "kane_status": "passed", "kane_one_liner": "Success message appears on cart add", "kane_steps": ["Navigate to product page", "Click Add to Cart", "Assert success notification visible"], "kane_summary": "Cart add triggers success message", "kane_code": ""},
-]
+MODEL = "claude-sonnet-4-6"
 
+EXTRACT_PROMPT = """\
+You are a requirements analyst. Extract ALL acceptance criteria from the requirements text below.
 
-def extract_acceptance_criteria(text: str) -> list[str]:
-    """Extract AC lines from a requirements text file."""
-    criteria = []
-    for line in text.splitlines():
-        line = line.strip()
-        if re.match(r"AC-\d+:", line):
-            criteria.append(line)
-    return criteria
+For each acceptance criterion output a JSON object with:
+- "id": sequential ID like "AC-001", "AC-002", etc.
+- "description": clear, concise description of what the user should be able to do (1-2 sentences)
+- "kane_steps": array of 2-4 test steps (strings) describing how to verify this criterion
+- "kane_one_liner": a single short phrase summarizing the criterion (5-8 words)
 
+Rules:
+- Extract EVERY distinct acceptance criterion, including implied ones
+- If requirements use user stories (As a... I want... So that...), extract the testable criterion
+- If requirements are free-form prose, identify each distinct testable behaviour
+- Number ACs sequentially starting from AC-001
+- Be precise — each AC should test ONE thing
+- Do NOT include implementation details, only observable user-facing behaviour
 
-def parse_all_requirements() -> list[dict]:
-    """Parse all *.txt files in requirements/ and return structured AC list."""
-    results = []
-    req_files = sorted(Path("requirements").glob("*.txt"))
-    for req_file in req_files:
-        text = req_file.read_text(encoding="utf-8")
-        for ac_line in extract_acceptance_criteria(text):
-            m = re.match(r"(AC-\d+):\s*(.+)", ac_line)
-            if m:
-                results.append({"id": m.group(1), "description": m.group(2).strip()})
-    return results
+Return ONLY a JSON array, no preamble, no explanation.
+
+Requirements:
+---
+{requirements_text}
+---
+"""
 
 
-def _read_kane_export(session_dir: str) -> str:
-    """Extract Playwright test body lines from Kane's code-export directory."""
-    if not session_dir:
-        return ""
-    code_dir = Path(session_dir).expanduser() / "code-export"
-    if not code_dir.exists():
-        return ""
-    py_files = sorted(code_dir.glob("*.py"))
-    if not py_files:
-        return ""
-    try:
-        code = py_files[0].read_text(encoding="utf-8")
-    except Exception:
-        return ""
-    skip_prefixes = (
-        "import ", "from ", "with sync_playwright", "playwright =",
-        "browser =", "context =", "page =", "browser.close", "context.close",
-        "async with", "asyncio.", "if __name__",
-    )
-    body_lines = []
-    in_body = False
-    for line in code.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("def ") or stripped.startswith("async def "):
-            in_body = True
-            continue
-        if not in_body or not stripped or stripped.startswith("#"):
-            continue
-        if any(stripped.startswith(p) for p in skip_prefixes):
-            continue
-        clean = stripped.replace("await ", "")
-        if clean.startswith("page.") or clean.startswith("assert ") or clean.startswith("expect("):
-            body_lines.append("    " + clean)
-    return "\n".join(body_lines)
+def _load_requirements_text() -> str:
+    """Read all .txt and .md files from requirements/ (excluding .json)."""
+    texts = []
+    for ext in ("*.txt", "*.md"):
+        for f in sorted(REQUIREMENTS_DIR.glob(ext)):
+            content = f.read_text(encoding="utf-8").strip()
+            if content:
+                texts.append(f"=== {f.name} ===\n{content}")
+    return "\n\n".join(texts)
 
 
-def run_kane_verification(ac: dict) -> dict:
-    """Run kane-cli for one acceptance criterion and return result dict."""
-    objective = (
-        f"Go to {TARGET_URL}, verify: {ac['description']} "
-        f"Assert the behaviour is observable. Pass if yes, fail if not."
-    )
-    print(f"  [kane] {ac['id']}: {objective[:80]}...")
-    try:
-        result = subprocess.run(
-            ["kane-cli", "run", objective, "--agent", "--headless",
-             "--timeout", "180", "--max-steps", "30", "--code-export"],
-            capture_output=True, text=True, timeout=210
-        )
-        status = "failed"
-        one_liner = ""
-        steps = []
-        session_dir = ""
-        combined_output = result.stdout + result.stderr
-        for line in combined_output.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-                if event.get("type") == "run_end":
-                    status = event.get("status", "failed")
-                    one_liner = event.get("one_liner", event.get("summary", ""))[:80]
-                    session_dir = event.get("session_dir", "")
-                elif "step" in event and "remark" in event:
-                    steps.append(event.get("remark", ""))
-            except json.JSONDecodeError:
-                pass
-        if result.returncode == 0 and status == "failed":
-            status = "passed"
-        kane_code = _read_kane_export(session_dir)
-        if kane_code:
-            print(f"  [kane] {ac['id']} — code export captured ({len(kane_code)} chars)")
-        return {**ac, "kane_status": status, "kane_one_liner": one_liner,
-                "kane_steps": steps, "kane_summary": one_liner, "kane_code": kane_code}
-    except subprocess.TimeoutExpired:
-        print(f"  [kane] TIMEOUT for {ac['id']}")
-        return {**ac, "kane_status": "failed", "kane_one_liner": "Timeout",
-                "kane_steps": [], "kane_summary": "Timeout", "kane_code": ""}
-    except FileNotFoundError:
-        print(f"  [kane] kane-cli not found — marking {ac['id']} as failed")
-        return {**ac, "kane_status": "failed", "kane_one_liner": "kane-cli not installed",
-                "kane_steps": [], "kane_summary": "", "kane_code": ""}
-
-
-def main() -> None:
-    import concurrent.futures
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--demo-mode", action="store_true", help="Use pre-seeded results")
-    parser.add_argument("--requirements", default="requirements", help="Requirements directory")
-    args = parser.parse_args()
-
-    Path("requirements").mkdir(exist_ok=True)
-    out_path = Path("requirements/analyzed_requirements.json")
-
-    if args.demo_mode:
-        print("[analyze] DEMO MODE — writing pre-seeded Kane results")
-        out_path.write_text(json.dumps(_DEMO_RESULTS, indent=2), encoding="utf-8")
-        print(f"[analyze] wrote {len(_DEMO_RESULTS)} requirements")
-        return
-
-    all_acs = parse_all_requirements()
-    if not all_acs:
-        print("ERROR: no acceptance criteria found in requirements/*.txt", file=sys.stderr)
+def extract_acs_with_claude(raw_text: str) -> list:
+    """Call Claude to extract structured ACs from any requirements text."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        print("[analyze] ERROR: ANTHROPIC_API_KEY not set", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[analyze] {len(all_acs)} ACs found — running KaneAI verification in parallel")
-    results_map: dict[str, dict] = {}
+    try:
+        import anthropic
+    except ImportError:
+        print("[analyze] ERROR: anthropic package not installed. Run: pip install anthropic",
+              file=sys.stderr)
+        sys.exit(1)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(run_kane_verification, ac): ac["id"] for ac in all_acs}
-        for future in concurrent.futures.as_completed(futures):
-            result = future.result()
-            results_map[result["id"]] = result
-            print(f"  {result['id']} → {result['kane_status']}")
+    client = anthropic.Anthropic(api_key=api_key)
+    prompt = EXTRACT_PROMPT.format(requirements_text=raw_text)
 
-    results = [results_map[ac["id"]] for ac in all_acs]
-    out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
-    passed = sum(1 for r in results if r["kane_status"] == "passed")
-    print(f"\n[analyze] complete: {passed}/{len(results)} passed → {out_path}")
+    print(f"[analyze] Sending {len(raw_text)} chars to Claude ({MODEL})...")
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw_json = resp.content[0].text.strip()
+
+    # Strip markdown code fences if present
+    if raw_json.startswith("```"):
+        lines = raw_json.splitlines()
+        raw_json = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+
+    try:
+        acs = json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        print(f"[analyze] ERROR: Claude returned invalid JSON: {e}", file=sys.stderr)
+        print(f"Raw response:\n{raw_json[:500]}", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(acs, list):
+        print("[analyze] ERROR: Claude response is not a JSON array", file=sys.stderr)
+        sys.exit(1)
+
+    return acs
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--print", action="store_true", dest="print_acs",
+                        help="Print extracted ACs to stdout")
+    args = parser.parse_args()
+
+    REQUIREMENTS_DIR.mkdir(exist_ok=True)
+
+    raw_text = _load_requirements_text()
+    if not raw_text:
+        print("[analyze] ERROR: No .txt or .md files found in requirements/", file=sys.stderr)
+        print("  Drop any requirements document into the requirements/ folder and re-run.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[analyze] Found requirements text ({len(raw_text)} chars) — extracting ACs with Claude")
+
+    acs = extract_acs_with_claude(raw_text)
+
+    OUTPUT_FILE.write_text(json.dumps(acs, indent=2), encoding="utf-8")
+    print(f"[analyze] Extracted {len(acs)} acceptance criteria → {OUTPUT_FILE.relative_to(PROJECT_ROOT)}")
+
+    if args.print_acs:
+        print()
+        for ac in acs:
+            print(f"  {ac['id']}: {ac['description']}")
+            print(f"    One-liner: {ac.get('kane_one_liner', '')}")
+            steps = ac.get("kane_steps", [])
+            for s in steps:
+                print(f"    - {s}")
+            print()
 
 
 if __name__ == "__main__":

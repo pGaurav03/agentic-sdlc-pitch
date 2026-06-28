@@ -1,0 +1,120 @@
+name: "Flow 2 — KaneAI TM API"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Flow 2: Requirements → Claude ACs → Claude Objectives → KaneAI (kane-cli)
+#         → LambdaTest Test Manager (test cases via API) → HyperExecute
+#         → AI RCA → Traceability
+#
+# Runs fully independently from Flow 1 — runs its own kane-cli sessions.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_step:
+        description: "Start from step (1=analyze reqs, 2=gen objectives, 3=flow2 pipeline)"
+        required: false
+        default: "1"
+        type: choice
+        options: ["1", "2", "3"]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  flow2-pipeline:
+    name: "Flow 2 · KaneAI → Test Manager → HyperExecute"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt --cache-dir ~/.cache/pip -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+          google-chrome --version
+
+      - name: Install kane-cli
+        run: npm install -g @testmuai/kane-cli
+
+      - name: Configure kane-cli
+        env:
+          LT_USERNAME:   ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+        run: |
+          kane-cli login --username "$LT_USERNAME" --access-key "$LT_ACCESS_KEY"
+          kane-cli install skill
+          kane-cli config project ${{ secrets.KANE_PROJECT_ID }}
+          kane-cli config folder  ${{ secrets.KANE_FOLDER_ID }}
+          kane-cli whoami
+
+      - name: Ensure output directories
+        run: mkdir -p reports logs
+
+      - name: "Step 1 — Analyze requirements (Claude)"
+        if: ${{ inputs.from_step == '' || inputs.from_step <= '1' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 -u ci/analyze_requirements.py
+
+      - name: "Step 2 — Generate kane-cli objectives (Claude)"
+        if: ${{ inputs.from_step == '' || inputs.from_step <= '2' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 -u ci/generate_objectives.py
+
+      - name: "Step 3 — Flow 2 pipeline (KaneAI → TM API → HyperExecute)"
+        env:
+          LT_USERNAME:       ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY:     ${{ secrets.LT_ACCESS_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: python3 -u ci/flow2_pipeline.py
+
+      - name: Write GitHub Step Summary
+        if: always()
+        run: |
+          {
+            echo "## Flow 2 — KaneAI TM API Results"
+            echo ""
+            if [ -f reports/traceability_matrix.md ]; then
+              cat reports/traceability_matrix.md
+            fi
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flow2-results-${{ github.run_number }}
+          path: |
+            reports/
+            ci/objectives.json
+            ci/run_history.json
+            ci/he_jobs.json
+            ci/rca_results.json
+            ci/tm_test_cases.json
+            logs/
+          retention-days: 30

@@ -30,3 +30,22 @@ package-lock.json
 # Runtime / vendor
 logs/
 vendor/
+
+# Pipeline-generated runtime files
+ci/last_run.json
+ci/run_history.json
+ci/he_jobs.json
+ci/rca_results.json
+ci/tm_test_cases.json
+
+# Generated test files (written by flow1 Phase 2)
+tests/playwright/kane/SC-*/test.py
+
+# Old dirs no longer needed
+scenarios/
+kane/
+
+# Misc
+requirement.txt
+*.spec.js
+lt-fixture.js
