@@ -15,20 +15,20 @@ env:
   TARGET_OS: "LINUX"
   BUILD: "Agentic SDLC | KaneAI Export"
 
-cacheKey: '{{ checksum "requirement.txt" }}'
+cacheKey: '{{ checksum "requirements-he.txt" }}'
 cacheDirectories:
   - CacheDir
 
 pre:
-  - pip3 install -r requirement.txt --cache-dir CacheDir
-  - playwright install
+  - pip3 install -r requirements-he.txt --cache-dir CacheDir
+  - playwright install chromium
 
 testDiscovery:
   type: raw
   mode: dynamic
-  command: python3 ci/list_tests.py
+  command: find tests/playwright/kane -name "test.py" | sort | sed 's|^|python |'
 
-testRunnerCommand: python $test
+testRunnerCommand: $test
 
 mergeArtifacts: true
 uploadArtefacts:
@@ -36,14 +36,8 @@ uploadArtefacts:
     path:
       - reports/
 
-report: true
-partialReports:
-  type: json
-  location: reports/
-  frameworkName: extent
-
 post:
-  - echo "HyperExecute Agentic SDLC — Kane Python export run complete"
+  - echo "HyperExecute Agentic SDLC — KaneAI Export run complete"
 
 jobLabel:
   - agentic-sdlc
