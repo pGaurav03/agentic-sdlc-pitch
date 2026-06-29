@@ -60,6 +60,9 @@ def _request(method: str, url: str, payload: dict = None) -> dict:
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:200]
         print(f"[rca] HTTP {e.code} on {method} {url}: {body}", file=sys.stderr)
+        # None signals permanent failure (404/403) so callers stop retrying
+        if e.code in (404, 403):
+            return None
         return {}
     except Exception as e:
         print(f"[rca] {method} {url} error: {e}", file=sys.stderr)
@@ -145,13 +148,15 @@ def _session_to_sc_id(session_name: str) -> str:
 
 # ── Step 4: Fetch per-session RCA ────────────────────────────────────────────
 
-def _fetch_session_rca(session_id: str) -> str:
-    """GET /automation/api/v1/sessions/{id}/rca → RCA summary text."""
+def _fetch_session_rca(session_id: str):
+    """GET /automation/api/v1/sessions/{id}/rca → RCA summary text, or None on 404."""
     if not session_id:
         return ""
     url  = SESSION_RCA_URL.format(sid=session_id)
     resp = _request("GET", url)
-    d    = resp.get("data", {})
+    if resp is None:
+        return None  # 404/403 — session not found, stop polling
+    d = resp.get("data", {})
     return (d.get("rca_summary") or d.get("summary") or d.get("message") or "")
 
 
@@ -254,6 +259,9 @@ def _poll_session_rca(session_id: str, sc_id: str, timeout: int = 120, interval:
     elapsed = 0
     while elapsed < timeout:
         raw = _fetch_session_rca(session_id)
+        if raw is None:
+            _log(f"[rca] {sc_id} RCA session not found (404) — skipping")
+            return ""
         if raw:
             _log(f"[rca] {sc_id} RCA received after {elapsed}s")
             return raw
