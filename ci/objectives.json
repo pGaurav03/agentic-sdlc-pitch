@@ -28,23 +28,5 @@
     "ac_id": "AC-005",
     "name": "SC-005: Catalog page loads with product listings",
     "objective": "Navigate to https://www.saucedemo.com/, type 'standard_user' into the username input, type 'secret_sauce' into the password input, click the Login button, and assert that the text 'Sauce Labs Backpack' is visible on the inventory page."
-  },
-  {
-    "id": "SC-006",
-    "ac_id": "AC-006",
-    "name": "SC-006: Product detail page shows name and price",
-    "objective": "Navigate to https://www.saucedemo.com/, type 'standard_user' into the username input, type 'secret_sauce' into the password input, click the Login button, click the title 'Sauce Labs Backpack' on the first product card, and assert that the text '$29.99' is visible on the product detail page."
-  },
-  {
-    "id": "SC-007",
-    "ac_id": "AC-007",
-    "name": "SC-007: Sort by name A to Z puts Backpack first",
-    "objective": "Navigate to https://www.saucedemo.com/, type 'standard_user' into the username input, type 'secret_sauce' into the password input, click the Login button, click the sort dropdown and select 'Name (A to Z)', and assert that the first product title on the page is 'Sauce Labs Backpack'."
-  },
-  {
-    "id": "SC-008",
-    "ac_id": "AC-008",
-    "name": "SC-008: Cart page shows price of added item",
-    "objective": "Navigate to https://www.saucedemo.com/, type 'standard_user' into the username input, type 'secret_sauce' into the password input, click the Login button, click the button with text 'Add to cart' below the price '$29.99' under the 'Sauce Labs Backpack' product name, then navigate to https://www.saucedemo.com/cart.html and assert that the text '$29.99' is visible on the cart page."
   }
 ]

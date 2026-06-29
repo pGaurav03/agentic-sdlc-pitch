@@ -49,7 +49,7 @@ TM_API        = "https://test-manager-api.lambdatest.com/api/v1"
 HE_API        = "https://test-manager-api.lambdatest.com/api/atm/v1/hyperexecute"
 PROJECT_ID    = "01KVXJ82AKT83GWJNFZTQVMNRQ"   # kane-agentic
 ENVIRONMENT_ID = 282603                           # Windows Config — Win10, Firefox 150, desktop web
-BASE_URL      = "https://automationexercise.com/"
+BASE_URL      = "https://www.saucedemo.com/"
 KANE_TIMEOUT  = 300   # seconds per kane-cli run
 BUILD_NAME    = f"Agentic SDLC | KaneAI Flow2 | {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
 
