@@ -39,6 +39,8 @@ For each acceptance criterion output a JSON object with:
 - "kane_steps": array of 2-4 test steps (strings) describing how to verify this criterion
 - "kane_one_liner": a single short phrase summarizing the criterion (5-8 words)
 
+Also extract the base URL of the application under test if mentioned in the requirements.
+
 Rules:
 - Extract EVERY distinct acceptance criterion, including implied ones
 - If requirements use user stories (As a... I want... So that...), extract the testable criterion
@@ -47,7 +49,11 @@ Rules:
 - Be precise — each AC should test ONE thing
 - Do NOT include implementation details, only observable user-facing behaviour
 
-Return ONLY a JSON array, no preamble, no explanation.
+Return ONLY a JSON object with two keys — no preamble, no explanation:
+{{
+  "base_url": "<extracted app URL or empty string>",
+  "acceptance_criteria": [ ...AC objects... ]
+}}
 
 Requirements:
 ---
@@ -98,17 +104,19 @@ def extract_acs_with_claude(raw_text: str) -> list:
         raw_json = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
 
     try:
-        acs = json.loads(raw_json)
+        parsed = json.loads(raw_json)
     except json.JSONDecodeError as e:
         print(f"[analyze] ERROR: Claude returned invalid JSON: {e}", file=sys.stderr)
         print(f"Raw response:\n{raw_json[:500]}", file=sys.stderr)
         sys.exit(1)
 
-    if not isinstance(acs, list):
-        print("[analyze] ERROR: Claude response is not a JSON array", file=sys.stderr)
-        sys.exit(1)
-
-    return acs
+    # Support both new wrapper format and legacy array
+    if isinstance(parsed, dict):
+        return parsed.get("base_url", ""), parsed.get("acceptance_criteria", [])
+    if isinstance(parsed, list):
+        return "", parsed
+    print("[analyze] ERROR: unexpected Claude response format", file=sys.stderr)
+    sys.exit(1)
 
 
 def main():
@@ -129,10 +137,13 @@ def main():
 
     print(f"[analyze] Found requirements text ({len(raw_text)} chars) — extracting ACs with Claude")
 
-    acs = extract_acs_with_claude(raw_text)
+    base_url, acs = extract_acs_with_claude(raw_text)
 
-    OUTPUT_FILE.write_text(json.dumps(acs, indent=2), encoding="utf-8")
+    output = {"base_url": base_url, "acceptance_criteria": acs}
+    OUTPUT_FILE.write_text(json.dumps(output, indent=2), encoding="utf-8")
     print(f"[analyze] Extracted {len(acs)} acceptance criteria → {OUTPUT_FILE.relative_to(PROJECT_ROOT)}")
+    if base_url:
+        print(f"[analyze] App URL: {base_url}")
 
     if args.print_acs:
         print()
