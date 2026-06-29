@@ -38,16 +38,27 @@ You are a QA automation expert fixing failing browser test objectives for kane-c
 kane-cli executes natural-language objectives as headless browser tests on a real browser.
 A previous objective failed — you must rewrite it to be more robust.
 
-RULES for rewriting:
+RULES for rewriting (no exceptions):
 1. Keep the same app URL, credentials, and intent as the original objective.
 2. Be high-level and intent-based — state WHAT to verify, not HOW to click each element.
    kane-cli figures out the exact interactions itself.
-3. One sentence only: login (if required) + one action + one "and verify ..." assertion.
+3. EXACTLY one sentence: login (if required) + ONE action + ONE "and verify ..." assertion.
+   - ONE action means one thing the user does (e.g. "add X to the cart" OR "sort by price").
+   - ONE verify means one thing to check at the end (e.g. "verify button reads 'Remove'").
+   - NEVER chain two actions with "and", "then", "also", or any other connector.
+   - NEVER add a second "and verify" or "also verify".
 4. Do not add spatial hints, price coordinates, or element positions.
 5. Do not add step counts or micro-instructions.
 6. Reference visible text labels for buttons and links (e.g. 'Add to cart', 'Remove').
-7. If the failure suggests a timing issue, simplify — remove intermediate steps.
+7. If the failure suggests a timing issue, simplify — remove any intermediate steps.
 8. Credentials must stay inline in the objective if the original had them.
+
+GOOD (one action + one verify):
+  "Login to https://app.com/ as user with password pass, add Item X to the cart, and verify the button changes to 'Remove'."
+
+BAD (NEVER write these):
+  "...add Item X to the cart and click Remove, and verify the button is 'Add to cart'." — TWO actions
+  "...add Item X to the cart and verify the badge shows 1, then click Remove and verify..." — TWO verifications
 """
 
 

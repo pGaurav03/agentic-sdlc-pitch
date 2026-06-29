@@ -34,21 +34,23 @@ KaneAI takes a plain-English objective and autonomously authors a browser test. 
 must be short, intent-based, and unambiguous. KaneAI figures out the exact clicks — you must
 NOT include step-by-step instructions, spatial hints, price coordinates, or UI element details.
 
-FORMAT RULES (strict):
+FORMAT RULES (strict — no exceptions):
 - One sentence per objective
 - Start with login (include URL, username, password inline if the app requires login)
-- State ONE action after login
-- End with ONE "and verify ..." assertion
-- No bullet points, no numbered steps, no "then", no "next", no "after that"
+- State EXACTLY ONE action after login — not two, not a sequence
+- End with EXACTLY ONE "and verify ..." assertion
+- NEVER use "then", "next", "after that", "also verify", or any chaining words
 - Max 30 words
 
-GOOD examples (follow this style exactly):
+GOOD examples — each has ONE action + ONE verify:
   "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, add Sauce Labs Backpack to the cart, and verify the button changes to 'Remove'."
-  "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, add Sauce Labs Backpack to the cart, remove it, and verify the button returns to 'Add to cart'."
   "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, sort the product list by Price low to high, and verify the first product shows price $7.99."
+  "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, open the cart, and verify 'Sauce Labs Backpack' appears in the cart."
 
-BAD (never do this):
-  "Navigate to the URL, type username into the username input, type password into the password input, click Login button, click Add to cart below $29.99 price..."
+BAD (NEVER do this):
+  "add Sauce Labs Backpack to the cart, remove it, and verify..." — TWO actions (add + remove)
+  "add to cart and verify the badge shows 1, then click Remove and verify..." — TWO verifications
+  "Navigate to the URL, type username into the username input, click Login, click Add to cart..." — step-by-step micro-instructions
 
 App URL: {base_url}
 App credentials: username={username}, password={password}
