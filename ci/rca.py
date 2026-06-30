@@ -86,7 +86,7 @@ def trigger_rca_for_job(job_id: str, log=None) -> dict:
     else:
         print(msg)
 
-    resp = _request("POST", RCA_TRIGGER_URL, {"job_ids": [job_id]})
+    resp = _request("POST", RCA_TRIGGER_URL, {"job_ids": [job_id]}) or {}
     data = resp.get("data", {})
     triggered        = data.get("triggered_count", 0)
     skipped_already  = data.get("skipped_already_generated", 0)
@@ -148,7 +148,7 @@ def fetch_sessions_for_build(build_name: str, log=None) -> list:
         return []
 
     import urllib.parse
-    url = f"{SESSIONS_URL}?build_name={urllib.parse.quote(build_name)}&limit=50"
+    url = f"{SESSIONS_URL}?build_name={urllib.parse.quote(build_name)}&limit=100"
     resp = _request("GET", url)
     raw  = resp.get("data", {})
     # API returns {"data": {"sessions": [...]}} or {"data": [...]}

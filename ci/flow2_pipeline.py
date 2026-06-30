@@ -694,6 +694,11 @@ if __name__ == "__main__":
         # Wait for HE job to finish before fetching results / running RCA
         poll_he_job(job_id, tc_internal_ids, timeout=1800, log=log)
 
+        # Give HE 30s grace period — "completed" sessions may still have a retry
+        # in flight; waiting ensures the retry result is visible in the sessions API
+        log.info("[flow2] Waiting 30s for HE retry sessions to settle...")
+        time.sleep(30)
+
         # Override run_history with actual HE pass/fail (not kane-cli Phase 1 status)
         update_history_from_he(SESSION_BUILD_NAME, flow="flow2", log=log, tc_to_sc=tc_to_sc)
 
