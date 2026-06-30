@@ -496,7 +496,7 @@ def poll_he_job(job_id: str, tc_internal_ids: set, timeout: int = 1800, log=None
     """
     from rca import _fetch_sessions_by_tc_ids
     _log = lambda m: (log.info(m) if log else print(m))
-    FINAL = {"passed", "failed", "cancelled", "error", "skipped", "stopped"}
+    FINAL = {"passed", "failed", "cancelled", "error", "skipped", "stopped", "completed"}
 
     _log(f"[he-poll] Waiting for HE job {job_id} to complete (timeout={timeout}s)...")
     _log(f"[he-poll] Tracking TC IDs: {tc_internal_ids}")
