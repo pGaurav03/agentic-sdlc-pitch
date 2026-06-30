@@ -71,6 +71,10 @@ def build_matrix() -> dict:
         obj   = ac_to_sc.get(ac_id, {})
         sc_id = obj.get("id", "—")
 
+        # Skip ACs that have no corresponding SC (not in current test scope)
+        if sc_id == "—":
+            continue
+
         # Result from run_history (written by pipeline after every Phase 1)
         hist  = history.get(sc_id, {})
         status = hist.get("status") or "not_run"
@@ -165,8 +169,8 @@ def write_markdown(matrix: dict) -> str:
         # TM TC column: hyperlinked TC-NNNNN label or pending
         tc_cell = r.get("tc_link") or ("pending" if not tm_id else r["tc_internal"])
         # RCA: prefer LT AI RCA, fall back to clean kane-cli run summary
-        rca_val = r.get("rca") or (_clean_failure_detail(r.get("failure_detail", ""), 80) if r["status"] == "failed" else "")
-        rca_snippet = (rca_val[:60] + "…") if len(rca_val) > 60 else (rca_val or "—")
+        rca_val = r.get("rca") or (_clean_failure_detail(r.get("failure_detail", ""), 300) if r["status"] == "failed" else "")
+        rca_snippet = (rca_val[:200] + "…") if len(rca_val) > 200 else (rca_val or "—")
         lines.append(
             f"| {r['ac_id']} | {r['criterion']} "
             f"| {sc_name} | {tc_cell} | {r['status']} | {r['overall']} | {rca_snippet} |"
