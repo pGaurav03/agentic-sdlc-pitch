@@ -15,14 +15,15 @@
     "id": "SC-003",
     "ac_id": "AC-003",
     "name": "SC-003: Remove item restores Add to cart button",
-    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, add Sauce Labs Backpack to the cart and click Remove, and verify the button label is 'Add to cart'."
+    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, remove Sauce Labs Backpack from the cart, and verify the button label changes to 'Add to cart'.",
+    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, add Sauce Labs Backpack to the cart and click Remove, and verify the button label is 'Add to cart'."
   },
   {
     "id": "SC-004",
     "ac_id": "AC-004",
     "name": "SC-004: Sort by price shows cheapest product first",
-    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, select the Price (low to high) sort option, and verify a product with price $7.99 is visible on the page.",
-    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, sort the product list by Price low to high, and verify the first product shows price $7.99."
+    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, sort products by Price (low to high), and verify that the first product displayed shows a price of $7.99.",
+    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, select the Price (low to high) sort option, and verify a product with price $7.99 is visible on the page."
   },
   {
     "id": "SC-005",
