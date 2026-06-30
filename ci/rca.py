@@ -287,7 +287,11 @@ def update_history_from_he(build_name: str, flow: str = "flow2", log=None, tc_to
     for sc_id, s in best.items():
         he_status = s["_status"]
         if sc_id in history:
-            history[sc_id]["status"]       = he_status
+            # Preserve authoring_status (Phase 1) before overwriting overall status with HE result
+            if "authoring_status" not in history[sc_id]:
+                history[sc_id]["authoring_status"] = history[sc_id].get("status", "not_run")
+            history[sc_id]["status"]       = he_status   # overall = HE execution result
+            history[sc_id]["he_status"]    = he_status   # explicit HE field for bifurcation
             history[sc_id]["flow"]         = flow
             history[sc_id]["session_link"] = s.get("session_link", "")
             if he_status == "failed" and not history[sc_id].get("failure_detail", "").strip():
@@ -405,7 +409,7 @@ def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None, tc_to_sc:
             log.warning("[rca] Skipping — LT_ACCESS_KEY or job_id missing")
         return {}
 
-    existing = json.loads(RCA_FILE.read_text()) if RCA_FILE.exists() else {}
+    # Start fresh each run — don't carry stale RCA from previous runs
     triggered = trigger_rca_for_job(job_id, log)
 
     if triggered > 0:
@@ -434,7 +438,7 @@ def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None, tc_to_sc:
         def _sc_id_for(s):
             return _session_to_sc_id(s["name"])
 
-    results = dict(existing)
+    results = {}
 
     # If LT AI RCA trigger returned 0 (Flow 2 KaneAI TM sessions not indexed),
     # fall back to Claude-generated RCA from kane-cli failure_detail in run_history

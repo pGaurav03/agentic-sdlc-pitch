@@ -119,11 +119,12 @@ def save_history(kane_results: list, flow: str = "flow"):
     for r in kane_results:
         sc_id = r.get("sc_id") or r.get("id", "unknown")
         history[sc_id] = {
-            "flow":       flow,
-            "status":     r.get("status"),
-            "objective":  r.get("objective", ""),
-            "failure_detail": r.get("failure_detail", ""),
-            "updated_at": datetime.now().isoformat(),
+            "flow":             flow,
+            "status":           r.get("status"),
+            "authoring_status": r.get("status"),   # preserved even after HE overwrites status
+            "objective":        r.get("objective", ""),
+            "failure_detail":   r.get("failure_detail", ""),
+            "updated_at":       datetime.now().isoformat(),
         }
     HISTORY_FILE.write_text(json.dumps(history, indent=2))
 

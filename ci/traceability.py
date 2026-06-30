@@ -75,12 +75,14 @@ def build_matrix() -> dict:
         if sc_id == "—":
             continue
 
-        # Result from run_history (written by pipeline after every Phase 1)
-        hist  = history.get(sc_id, {})
-        status = hist.get("status") or "not_run"
-        failure_detail = hist.get("failure_detail", "")
-        last_run_ts    = hist.get("updated_at", "")
-        flow           = hist.get("flow", "")
+        # Result from run_history (written by pipeline after every Phase 1 + HE)
+        hist             = history.get(sc_id, {})
+        status           = hist.get("status") or "not_run"          # overall = HE execution result
+        authoring_status = hist.get("authoring_status") or "not_run"  # Phase 1 kane-cli result
+        he_status        = hist.get("he_status") or ""               # explicit HE field (may be absent on old runs)
+        failure_detail   = hist.get("failure_detail", "")
+        last_run_ts      = hist.get("updated_at", "")
+        flow             = hist.get("flow", "")
 
         # TM test case (written by flow2 after Phase 2)
         tm = tm_tcs.get(sc_id, {})
@@ -95,28 +97,31 @@ def build_matrix() -> dict:
         rca_text    = rca_entry.get("rca", "")
         session_link = rca_entry.get("session_link", "")
 
-        overall = "✅" if status == "passed" else ("❌" if status == "failed" else "⏭")
+        def _icon(s): return "✅" if s == "passed" else ("❌" if s == "failed" else "—")
         rows.append({
-            "ac_id":          ac_id,
-            "criterion":      req["description"],
-            "sc_id":          sc_id,
-            "sc_name":        obj.get("name", sc_id),
-            "objective":      obj.get("objective", ""),
-            "tm_id":          tm_id,
-            "tc_internal":    tc_internal,
-            "tc_link":        tc_link,
-            "status":         status,
-            "overall":        overall,
-            "failure_detail": failure_detail,
-            "rca":            rca_text,
-            "session_link":   session_link,
-            "last_run_ts":    last_run_ts,
-            "flow":           flow,
+            "ac_id":            ac_id,
+            "criterion":        req["description"],
+            "sc_id":            sc_id,
+            "sc_name":          obj.get("name", sc_id),
+            "objective":        obj.get("objective", ""),
+            "tm_id":            tm_id,
+            "tc_internal":      tc_internal,
+            "tc_link":          tc_link,
+            "status":           status,
+            "authoring_status": authoring_status,
+            "he_status":        he_status or status,
+            "authoring_icon":   _icon(authoring_status),
+            "he_icon":          _icon(he_status or status),
+            "failure_detail":   failure_detail,
+            "rca":              rca_text,
+            "session_link":     session_link,
+            "last_run_ts":      last_run_ts,
+            "flow":             flow,
         })
 
-    passed   = sum(1 for r in rows if r["status"] == "passed")
-    failed   = sum(1 for r in rows if r["status"] == "failed")
-    not_run  = sum(1 for r in rows if r["status"] == "not_run")
+    passed   = sum(1 for r in rows if r["he_status"] == "passed")
+    failed   = sum(1 for r in rows if r["he_status"] == "failed")
+    not_run  = sum(1 for r in rows if r["he_status"] not in ("passed", "failed"))
     total    = len(rows)
     pass_pct = round(passed / total * 100, 1) if total else 0
 
@@ -154,73 +159,90 @@ def write_markdown(matrix: dict) -> str:
     he_jobs = matrix["he_jobs"]
     ts      = matrix["generated_at"]
 
-    TM_PROJECT_URL = "https://test-manager.lambdatest.com/projects/01KVXJ82AKT83GWJNFZTQVMNRQ/test-cases"
-
     lines = [
         "# Agentic SDLC — Traceability Matrix",
         f"\n_Generated: {ts}_\n",
-        "## Requirement → Scenario → Test Case → Result\n",
-        "| AC | Acceptance Criterion | Scenario Name | TM Test Case | Status | Result | RCA |",
-        "| -- | -------------------- | ------------- | ------------ | ------ | ------ | --- |",
-    ]
-    for r in rows:
-        tm_id   = r.get("tm_id", "")
-        sc_name = r.get("sc_name", r["sc_id"])
-        # TM TC column: hyperlinked TC-NNNNN label or pending
-        tc_cell = r.get("tc_link") or ("pending" if not tm_id else r["tc_internal"])
-        # RCA: prefer LT AI RCA, fall back to clean kane-cli run summary
-        rca_val = r.get("rca") or (_clean_failure_detail(r.get("failure_detail", ""), 300) if r["status"] == "failed" else "")
-        rca_snippet = (rca_val[:200] + "…") if len(rca_val) > 200 else (rca_val or "—")
-        lines.append(
-            f"| {r['ac_id']} | {r['criterion']} "
-            f"| {sc_name} | {tc_cell} | {r['status']} | {r['overall']} | {rca_snippet} |"
-        )
-
-    lines += [
-        "",
-        "## Summary",
-        f"- **Total ACs:** {summary['total']}",
-        f"- **Passed:** {summary['passed']}  |  "
-        f"**Failed:** {summary['failed']}  |  "
-        f"**Not run:** {summary['not_run']}",
-        f"- **Pass rate:** {summary['pass_rate']}%",
     ]
 
-    lines += ["", "## Scenario Objectives",
-              "",
-              "| SC | Scenario Name | Objective |",
-              "| -- | ------------- | --------- |"]
-    for r in rows:
-        sc_name  = r.get("sc_name", r["sc_id"])
-        objective = r.get("objective", "—")
-        lines.append(f"| {r['sc_id']} | {sc_name} | {objective} |")
-
+    # ── HyperExecute job link at the top ──────────────────────────────────────
     if he_jobs:
-        lines += ["", "## HyperExecute Jobs"]
         for flow, info in he_jobs.items():
             link       = info.get("job_link", "")
             jid        = info.get("job_id", "")
             ts2        = info.get("ts", "")
             report_url = info.get("tm_report_url", "")
-            he_line = f"- **{flow}:** [{jid}]({link}) — {ts2}"
+            he_line = f"**HyperExecute Job:** [{jid}]({link}) — {ts2}"
             if report_url:
-                he_line += f" | [📋 Test Run Report]({report_url})"
+                he_line += f" &nbsp;|&nbsp; [📋 TM Test Run Report]({report_url})"
             lines.append(he_line)
+        lines.append("")
 
-    failed_rows = [r for r in rows if r["status"] == "failed"]
-    if failed_rows:
-        lines += ["", "## Failed Scenarios — Root Cause Analysis"]
-        for r in failed_rows:
-            lines.append(f"\n### {r['sc_id']} — {r.get('sc_name', r['sc_id'])}")
+    # ── Summary ───────────────────────────────────────────────────────────────
+    lines += [
+        "## Summary\n",
+        f"| Total ACs | ✅ Passed | ❌ Failed | Pass Rate |",
+        f"| --------- | --------- | --------- | --------- |",
+        f"| {summary['total']} | {summary['passed']} | {summary['failed']} | {summary['pass_rate']}% |",
+        "",
+    ]
+
+    # ── Traceability table with bifurcation ───────────────────────────────────
+    lines += [
+        "## Requirement → Scenario → Test Case → Result\n",
+        "| AC | Acceptance Criterion | Scenario | TM Test Case | Authoring | Execution | RCA |",
+        "| -- | -------------------- | -------- | ------------ | :-------: | :-------: | --- |",
+    ]
+    for r in rows:
+        tm_id   = r.get("tm_id", "")
+        sc_name = r.get("sc_name", r["sc_id"])
+        tc_cell = r.get("tc_link") or ("pending" if not tm_id else r["tc_internal"])
+        rca_val = r.get("rca") or (_clean_failure_detail(r.get("failure_detail", ""), 300) if r["status"] == "failed" else "")
+        rca_snippet = (rca_val[:200] + "…") if len(rca_val) > 200 else (rca_val or "—")
+        lines.append(
+            f"| {r['ac_id']} | {r['criterion']} | {sc_name} | {tc_cell} "
+            f"| {r['authoring_icon']} | {r['he_icon']} | {rca_snippet} |"
+        )
+
+    # ── Scenario Objectives ───────────────────────────────────────────────────
+    lines += [
+        "",
+        "## Scenario Objectives\n",
+        "| SC | Scenario Name | Objective |",
+        "| -- | ------------- | --------- |",
+    ]
+    for r in rows:
+        lines.append(f"| {r['sc_id']} | {r.get('sc_name', r['sc_id'])} | {r.get('objective', '—')} |")
+
+    # ── Failed Scenarios RCA ──────────────────────────────────────────────────
+    # Show authoring failures and execution failures in separate subsections
+    authoring_failed = [r for r in rows if r["authoring_status"] == "failed"]
+    exec_failed      = [r for r in rows if r["he_status"] == "failed" and r["authoring_status"] == "passed"]
+
+    if authoring_failed or exec_failed:
+        lines += ["", "## Root Cause Analysis\n"]
+
+    if authoring_failed:
+        lines.append("### Phase 1 — Authoring Failures (kane-cli could not author the test)\n")
+        for r in authoring_failed:
+            lines.append(f"#### {r['sc_id']} — {r.get('sc_name', r['sc_id'])}")
             lines.append(f"**AC:** {r['ac_id']} — {r['criterion']}")
-            lines.append(f"\n**Objective:** {r['objective']}")
-            if r.get("session_link"):
-                lines.append(f"\n**Session:** [{r['session_link']}]({r['session_link']})")
+            lines.append(f"\n**Objective given to kane-cli:**\n> {r['objective']}\n")
             if r.get("rca"):
-                lines.append(f"\n**AI RCA (LambdaTest):**\n\n{r['rca']}")
+                lines.append(f"**AI RCA:**\n\n{r['rca']}\n")
             elif r.get("failure_detail"):
-                snippet = _clean_failure_detail(r["failure_detail"], 400)
-                lines.append(f"\n**What kane-cli did:**\n{snippet}")
+                snippet = _clean_failure_detail(r["failure_detail"], 500)
+                lines.append(f"**What kane-cli did:**\n```\n{snippet}\n```\n")
+
+    if exec_failed:
+        lines.append("### Phase 3 — Execution Failures (authored OK, failed on HyperExecute)\n")
+        for r in exec_failed:
+            lines.append(f"#### {r['sc_id']} — {r.get('sc_name', r['sc_id'])}")
+            lines.append(f"**AC:** {r['ac_id']} — {r['criterion']}")
+            lines.append(f"\n**Objective:** {r['objective']}\n")
+            if r.get("session_link"):
+                lines.append(f"**Session:** {r['session_link']}\n")
+            if r.get("rca"):
+                lines.append(f"**AI RCA:**\n\n{r['rca']}\n")
 
     return "\n".join(lines)
 
