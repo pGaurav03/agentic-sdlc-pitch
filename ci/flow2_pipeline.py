@@ -823,7 +823,7 @@ if __name__ == "__main__":
         _sp.run(["git", "add", "requirements/analyzed_requirements.json"], check=False)
         result = _sp.run(
             ["git", "commit", "-m",
-             f"chore(objectives): auto-improve {healed_count} SC(s) from run #{run_number} [skip ci]"],
+             f"chore(objectives): auto-improve {healed_count} SC(s) from run #{run_number}"],
             capture_output=True, text=True
         )
         if result.returncode == 0:

@@ -75,7 +75,7 @@ On the **next push**, the pipeline starts from the improved objectives automatic
 | **Manual dispatch — no URL** | Same as push — uses committed `objectives.json` |
 | **Manual dispatch + requirements URL** | Downloads doc → Claude extracts ACs → Claude generates objectives → full pipeline |
 
-> Auto-improve commits use `[skip ci]` so they don't re-trigger the pipeline indefinitely.
+> Auto-improve commits only touch `ci/objectives.json` and `requirements/analyzed_requirements.json` — the workflow's `paths-ignore` excludes these files, so auto-improve commits never re-trigger the pipeline.
 
 ---
 
@@ -111,9 +111,9 @@ Without inline heal, a logic failure wastes the entire run. Without cross-run he
 
 Browser tests on real infrastructure can be flaky for reasons unrelated to the test logic (page load timing, transient network blip). A single retry catches these without masking real failures — two consecutive failures of the same test almost always indicate a genuine bug or a broken objective.
 
-### Why `[skip ci]` on auto-improve commits?
+### Why `paths-ignore` instead of `[skip ci]`?
 
-The auto-improve step commits an updated `objectives.json` at the end of every run. Without `[skip ci]`, that commit would trigger a new pipeline run, which would commit another update, which would trigger another run — an infinite loop. The tag tells GitHub Actions to skip this commit.
+The auto-improve step commits updated `objectives.json` and `analyzed_requirements.json` at the end of every run. Without loop prevention, that commit would trigger a new run indefinitely. The workflow uses `paths-ignore` on exactly those files — so auto-improve commits are structurally excluded, not dependent on a magic string in the commit message. This also keeps push triggers reliable: `[skip ci]` in recent commit history can cause GitHub Actions to de-prioritise subsequent push triggers on the branch.
 
 ### Why is the objective format strictly enforced?
 
