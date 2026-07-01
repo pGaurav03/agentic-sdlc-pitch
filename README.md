@@ -277,7 +277,7 @@ The improved `objectives.json` is committed back to `main`. The workflow's `path
 
 ## Forking this repo
 
-### 1. GitHub Secrets
+### 1. GitHub Secrets *(required)*
 
 Go to **Settings → Secrets and variables → Actions → Secrets**
 
@@ -287,7 +287,9 @@ Go to **Settings → Secrets and variables → Actions → Secrets**
 | `LT_ACCESS_KEY` | Testmu AI access key | [accounts.lambdatest.com/security](https://accounts.lambdatest.com/security) |
 | `ANTHROPIC_API_KEY` | Claude API key | [console.anthropic.com](https://console.anthropic.com) |
 
-### 2. GitHub Variables
+These three are the only required configuration. Without them the pipeline cannot authenticate.
+
+### 2. GitHub Variables *(optional — has working defaults)*
 
 Go to **Settings → Secrets and variables → Actions → Variables**
 
@@ -296,7 +298,7 @@ Go to **Settings → Secrets and variables → Actions → Variables**
 | `TM_PROJECT_ID` | Test Manager project ID (ULID) | KaneAI → your project → URL contains the project ID |
 | `TM_ENVIRONMENT_ID` | Test environment ID (integer) | Test Manager → Environments → create or select → ID in API response |
 
-If these variables are not set, the pipeline falls back to the default saucedemo project and environment.
+If not set, the pipeline falls back to the default saucedemo project and environment — it still runs end-to-end and produces real results, so you can see the full flow working immediately without any project configuration.
 
 ### 3. Configure kane-cli for your project
 
