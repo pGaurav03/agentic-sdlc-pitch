@@ -38,7 +38,8 @@ Push to main  ──────────────────────
          kane-cli runs each objective on a real browser (KaneAI)
          ├── 3 SCs in parallel, staggered 3s apart
          ├── Tier 1 — Infra retry: CDP/browser crash → retry same objective
-         ├── Tier 2 — Inline self-heal: logic failure → Claude rewrites → immediate retry
+         ├── Tier 2 — Inline self-heal: logic failure → Claude rewrites → retry (up to 2 heal attempts)
+         │           Each heal uses the fresh failure detail from the previous attempt as context
          └── saves verified test to Testmu AI Test Manager
                     ↓
          Test Run created in TM → instances linked with environment
@@ -101,7 +102,14 @@ Without inline heal, a logic failure wastes the entire run. Without cross-run he
 ### Why two tiers within inline heal?
 
 - **Tier 1 (infra retry, same objective):** CDP disconnects, browser crashes, and screenshot failures are transient. Healing the objective won't fix them — just retry. Using Claude here wastes tokens and risks introducing unnecessary changes.
-- **Tier 2 (Claude heal + retry):** If the failure persists after an infra retry, it's a logic problem — the objective is ambiguous, too specific about UI coordinates, or chains too many actions. That's when Claude rewrites it.
+- **Tier 2 (Claude heal + retry, up to 2 attempts):** If the failure persists after an infra retry, it's a logic problem — the objective is ambiguous, too specific about UI coordinates, or chains too many actions. That's when Claude rewrites it. A single heal attempt may produce a better-but-still-failing objective — the second attempt feeds that fresh failure detail back to Claude so each rewrite builds on the previous one rather than starting blind.
+
+| Attempt | What runs |
+|---------|-----------|
+| 1 | Original objective |
+| Tier 1 | Same objective (only if infra crash detected) |
+| 2 | Claude heal #1 → retry |
+| 3 | Claude heal #2 using failure from attempt 2 → retry |
 
 ### Why 5 VMs for HyperExecute?
 
@@ -126,6 +134,10 @@ If an objective is unchanged from the last run and a valid TM test case already 
 ### Why does LT AI RCA need a 120s pre-wait?
 
 The LT automation sessions API (used to fetch session results) indexes sessions almost immediately after they complete. The LT insights engine (used for AI RCA) is a separate system that ingests from the sessions API asynchronously — it typically lags by 2–3 minutes. Calling the RCA trigger too early returns `triggered=0` because the engine hasn't seen the sessions yet. The 120s wait is a safety buffer so the trigger finds the sessions on the first or second attempt.
+
+### Why filter sessions by HE trigger time?
+
+TM-triggered HE sessions are matched by TC internal ID (e.g. `TC-42299`) — not by build name, since each test case gets its own build UUID. When the same TCs are reused across runs (because the reuse check skipped kane-cli), the account's session history contains sessions for that TC from every previous run. Without a time filter, fetching the 100 most recent sessions returns 10-15 entries for 4 TCs — stale "passed" sessions from old runs can override a current "failed" result during deduplication. The pipeline records the exact UTC time HyperExecute is triggered and filters out any session created before that timestamp, so only sessions from the current run are considered.
 
 ---
 
@@ -190,7 +202,7 @@ Navigate to the URL, type 'standard_user' into the username field, click the Log
 - **600s timeout per SC** — KaneAI explores the UI autonomously; complex objectives can take time
 - **Reuse check:** if objective is unchanged and a valid TM test case exists, kane-cli is skipped — saves 5–8 min per run
 - **Tier 1 — Infra retry:** transient failures (CDP disconnect, browser crash) → retry same objective immediately, no Claude call
-- **Tier 2 — Inline self-heal:** logic failure after infra retry → Claude (`claude-sonnet-4-6`) rewrites objective on-the-fly → immediate retry in the same run
+- **Tier 2 — Inline self-heal:** logic failure after infra retry → Claude (`claude-sonnet-4-6`) rewrites objective on-the-fly → retry. Up to **2 heal attempts per SC** — the second heal uses the failure detail from the first healed attempt as context, giving Claude a better signal each iteration
 - **Cross-run self-heal:** at the start of every run, Claude pre-heals objectives that failed the previous run (uses LT AI RCA as context for HE failures, kane-cli run summary for authoring failures)
 
 The healed objective (before/after comparison) is printed to logs so you can see exactly what changed.
@@ -257,7 +269,7 @@ After HE results and RCA are in, Claude rewrites objectives for **all failed SCs
 | Phase 1 authoring failure | kane-cli run summary (what it actually tried) |
 | HE execution failure | LT AI RCA (`failure_summary` + `analysis` + `steps_to_fix`) |
 
-The improved `objectives.json` is committed with `[skip ci]`. The next push automatically starts from better objectives — no human intervention needed.
+The improved `objectives.json` is committed back to `main`. The workflow's `paths-ignore` excludes `ci/objectives.json` and `requirements/analyzed_requirements.json`, so this commit never re-triggers the pipeline. The next push automatically starts from better objectives — no human intervention needed.
 
 > Custom URL runs (`REQUIREMENTS_URL` set) never overwrite the committed saucedemo objectives — only default runs auto-improve.
 
@@ -366,13 +378,14 @@ python3 ci/flow2_pipeline.py --skip-phase1
 
 | Situation | Behaviour |
 |-----------|-----------|
-| SC fails authoring | Infra retry first; then inline Claude heal + retry; cross-run heal on next push |
+| SC fails authoring | Infra retry (Tier 1); then up to 2× Claude heal + retry (Tier 2); cross-run heal on next push |
 | All SCs fail Phase 1 | Pipeline aborts before creating HE job |
 | Phase 2 returns no TC IDs | HE poll skipped immediately (no 30-min timeout) |
 | LT AI RCA `triggered=0` | Retries trigger 3× (60s apart); Claude fallback for Phase 1 authoring failures only |
 | RCA session returns 404 | Skipped instantly — no retry loop |
 | HE session status `completed` | Treated as in-progress retry (not passed) — waits for final result |
-| Auto-improve commit | `[skip ci]` prevents re-triggering the pipeline |
+| Auto-improve commit | `paths-ignore` on `ci/objectives.json` + `requirements/analyzed_requirements.json` prevents re-triggering |
 | Custom URL run | Objectives generated for that URL; never overwrites default saucedemo objectives |
 | First run (no history) | Cross-run heal skips gracefully — nothing to heal |
 | Private Google Doc URL | Download fails — make the doc public ("Anyone with link can view") |
+U
