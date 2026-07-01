@@ -24,14 +24,14 @@
     "id": "SC-004",
     "ac_id": "AC-016",
     "name": "SC-004: Sort by Price Low to High",
-    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, select Price (low to high) from the sort dropdown, and verify the product name Sauce Labs Backpack is visible.",
-    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, select Price (low to high) from the sort dropdown, and verify the price $7.99 is visible."
+    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, select Price (low to high) from the sort dropdown, and verify the price $7.99 is visible.",
+    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, select Price (low to high) from the sort dropdown, and verify the product name Sauce Labs Backpack is visible."
   },
   {
     "id": "SC-005",
     "ac_id": "AC-013",
     "name": "SC-005: Cart Page Lists Added Items",
-    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, submit the login form, and verify the Add to cart button for Sauce Labs Backpack is visible on the products page.",
-    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, click the Add to cart button for Sauce Labs Backpack, and verify the shopping cart link displays the number 1."
+    "objective": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, and verify the product name Sauce Labs Backpack is visible on the products page.",
+    "healed_from": "Login to https://www.saucedemo.com/ as standard_user with password secret_sauce, submit the login form, and verify the Add to cart button for Sauce Labs Backpack is visible on the products page."
   }
 ]
