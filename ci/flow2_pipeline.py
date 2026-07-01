@@ -778,6 +778,12 @@ if __name__ == "__main__":
         # Override run_history with actual HE pass/fail (not kane-cli Phase 1 status)
         update_history_from_he(SESSION_BUILD_NAME, flow="flow2", log=log, tc_to_sc=tc_to_sc)
 
+        # Give LT insights engine time to index the completed HE sessions.
+        # The automation sessions API indexes fast (used above), but the insights
+        # RCA engine typically needs 2+ minutes after sessions reach final state.
+        log.info("[flow2] Waiting 120s for LT insights engine to index HE sessions before triggering RCA...")
+        time.sleep(120)
+
         # RCA only for failed test sessions (skips automatically if triggered=0)
         run_rca(job_id, build_name=SESSION_BUILD_NAME, log=log, tc_to_sc=tc_to_sc)
 

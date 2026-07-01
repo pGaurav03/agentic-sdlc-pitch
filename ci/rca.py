@@ -479,16 +479,16 @@ def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None, tc_to_sc:
         if newly_triggered > 0 or already_done > 0:
             break
         if attempt < 3:
-            _log(f"[rca] triggered=0 skipped_already=0 (attempt {attempt}/3) — waiting 30s for LT indexing...")
-            time.sleep(30)
+            _log(f"[rca] triggered=0 skipped_already=0 (attempt {attempt}/3) — waiting 60s for LT indexing...")
+            time.sleep(60)
 
     newly_triggered  = trigger_info.get("triggered", 0)
     already_done     = trigger_info.get("skipped_already", 0)
     lt_rca_available = newly_triggered > 0 or already_done > 0
 
     if newly_triggered > 0:
-        _log("[rca] Waiting 60s for LT AI RCA generation...")
-        time.sleep(60)
+        _log("[rca] Waiting 90s for LT AI RCA generation...")
+        time.sleep(90)
 
     # Step 2: Fetch sessions → build session_id → sc_id mapping
     if tc_to_sc:
@@ -522,11 +522,14 @@ def run_rca(job_id: str, build_name: str = FLOW1_BUILD_NAME, log=None, tc_to_sc:
     # test_id in the RCA response == session_id from the sessions API
     if lt_rca_available:
         rca_entries = _fetch_rca_by_job(job_id, log)
-        # If newly triggered and not yet ready, retry once after 30s
+        # If newly triggered and not yet ready, retry up to 3 times with 30s gaps
         if not rca_entries and newly_triggered > 0:
-            _log("[rca] No entries yet — waiting 30s and retrying fetch...")
-            time.sleep(30)
-            rca_entries = _fetch_rca_by_job(job_id, log)
+            for retry in range(1, 4):
+                _log(f"[rca] No entries yet (retry {retry}/3) — waiting 30s...")
+                time.sleep(30)
+                rca_entries = _fetch_rca_by_job(job_id, log)
+                if rca_entries:
+                    break
         for entry in rca_entries:
             test_id    = entry.get("test_id", "")
             rca_detail = entry.get("rca_detail", {})

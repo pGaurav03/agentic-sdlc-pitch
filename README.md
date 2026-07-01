@@ -31,25 +31,34 @@ Push to main  ──────────────────────
                                                                               │
 ◄─────────────────────────────────────────────────────────────────────────────┘
                     ↓
+         Cross-run self-heal (start of run)
+         └── Claude pre-heals objectives that failed last run
+                    ↓
          kane-cli runs each objective on a real browser (KaneAI)
-         ├── 3 SCs run in parallel
-         ├── inline self-heal: if it fails, Claude rewrites + retries immediately
+         ├── 3 SCs run in parallel (staggered 3s apart)
+         ├── Tier 1 — Infra retry: CDP/browser crash → retry same objective
+         ├── Tier 2 — Inline self-heal: logic failure → Claude rewrites → immediate retry
          └── saves verified test to LambdaTest Test Manager
                     ↓
-         Test Run created → linked to HyperExecute
+         Test Run created in TM → instances linked with environment
                     ↓
          HyperExecute runs all tests in parallel (5 VMs, 1 retry)
          └── pipeline polls until all sessions reach final state
                     ↓
+         Wait 120s for LT insights engine to index HE sessions
+                    ↓
          AI Root Cause Analysis
-         ├── LT AI RCA (polls per-session endpoint)
-         └── Claude RCA fallback (from kane-cli failure detail)
+         ├── LT AI RCA: POST /rca/generate → wait 90s → GET /rca?job_ids=...
+         │   └── retries trigger up to 3× (60s apart) if not yet indexed
+         └── Claude RCA fallback (Phase 1 authoring failures only)
                     ↓
          Traceability Matrix → GitHub Step Summary
          ├── Authoring column (Phase 1) + Execution column (Phase 3)
          └── HE job link + TM Test Run Report link
                     ↓
          Auto-improve: Claude rewrites objectives for all failed SCs
+         ├── Phase 1 failure → uses kane-cli run summary
+         ├── HE execution failure → uses LT AI RCA as context
          └── commits improved objectives.json back to main [skip ci]
 ```
 
@@ -128,9 +137,10 @@ Navigate to the URL, type 'standard_user' into the username field, click the Log
 
 - **3 SCs run in parallel** (staggered 3s apart)
 - **600s timeout per SC**
-- **Tier 1 — Infra retry:** transient failures (CDP disconnect, browser crash) → retry same objective
-- **Tier 2 — Inline self-heal:** logic failures → Claude rewrites objective → immediate retry
-- **Cross-run self-heal:** at start of next run, Claude pre-heals any objectives that failed last time
+- **Reuse check:** if objective is unchanged and a valid TM test case exists from a previous run, kane-cli is skipped (saves time)
+- **Tier 1 — Infra retry:** transient failures (CDP disconnect, browser crash) → retry same objective immediately
+- **Tier 2 — Inline self-heal:** logic failure → Claude (`claude-sonnet-4-6`) rewrites objective on-the-fly → immediate retry in the same run
+- **Cross-run self-heal:** at the start of every run, Claude pre-heals any objectives that failed the previous run (uses LT AI RCA as context for HE failures)
 
 ---
 
@@ -153,10 +163,11 @@ The pipeline polls HyperExecute until all sessions reach a final state before pr
 Two-layer RCA for every failed scenario:
 
 **Layer 1 — LT AI RCA:**
+- Waits 120s after HE completion for the LT insights engine to index sessions
 - Triggers `POST /insights/api/v3/public/rca/generate` for the HE job
-- Waits 60s for generation, then polls per-session RCA endpoint
-- Summarised to 3 bullets by Claude Haiku
-- If `triggered=0` (TM sessions not indexed by job), tries session-level RCA directly before falling back
+- Retries trigger up to 3× with 60s gaps if `triggered=0` (indexing lag)
+- After trigger, waits 90s for generation then fetches via `GET /rca?job_ids=...`
+- Retries fetch up to 3× with 30s gaps if no entries returned yet
 
 **Layer 2 — Claude RCA fallback** (when LT AI RCA is unavailable):
 - Reads kane-cli `failure_detail` from `run_history.json`
@@ -302,7 +313,7 @@ python3 ci/flow2_pipeline.py --skip-phase1
 | SC fails authoring | Infra retry first; then inline Claude heal + retry; cross-run heal on next push |
 | All SCs fail Phase 1 | Pipeline aborts before creating HE job |
 | Phase 2 returns no TC IDs | HE poll skipped immediately (no 30-min timeout) |
-| LT AI RCA `triggered=0` | Tries session-level RCA directly; Claude fallback if still empty |
+| LT AI RCA `triggered=0` | Retries trigger 3× (60s apart); Claude fallback for Phase 1 authoring failures only |
 | RCA session returns 404 | Skipped instantly — no retry loop |
 | HE session status `completed` | Treated as in-progress retry (not passed) — waits for final result |
 | Auto-improve commit | `[skip ci]` prevents re-triggering the pipeline |
