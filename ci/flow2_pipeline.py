@@ -564,7 +564,7 @@ def phase2_fetch_test_cases(kane_results):
 
 # ── Phase 3: Create test run + trigger HyperExecute ──────────────────────────
 
-def poll_he_job(job_id: str, tc_internal_ids: set, timeout: int = 1800, log=None, start_time: str = None) -> str:
+def poll_he_job(job_id: str, tc_internal_ids: set, timeout: int = 1800, log=None, exclude_ids: set = None) -> str:
     """
     Poll automation sessions API until all sessions for this HE job reach a final
     status (passed/failed/cancelled/error) or timeout is reached.
@@ -588,7 +588,7 @@ def poll_he_job(job_id: str, tc_internal_ids: set, timeout: int = 1800, log=None
 
     elapsed = 60
     while elapsed < timeout:
-        sessions = _fetch_sessions_by_tc_ids(tc_internal_ids, start_time=start_time)
+        sessions = _fetch_sessions_by_tc_ids(tc_internal_ids, exclude_ids=exclude_ids)
         if sessions:
             statuses = {s["status"] for s in sessions}
             pending  = statuses - FINAL
@@ -767,12 +767,6 @@ if __name__ == "__main__":
             log.info(f"[tm] {r['sc_id']} → {r.get('testcase_id')} ({src})")
         record_tm_test_cases_with_sc(passed_results, test_cases)
 
-    job_id, job_link, tm_report_url = phase3_trigger_he(test_cases)
-
-    # Record the HE trigger time — used to filter out sessions from previous runs
-    # when the same TC IDs are reused across runs (prevents session flood / stale results)
-    he_start_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
-
     # Build TC internal ID → SC-id mapping for session tracking
     # TM-triggered HE sessions are named "Web || gagandeepb || TC-41961" —
     # there is no shared build name, so we match sessions by TC internal IDs.
@@ -787,12 +781,24 @@ if __name__ == "__main__":
             tc_internal_ids.add(internal)
     log.info(f"[poll] TC→SC mapping: {tc_to_sc}")
 
+    # Snapshot pre-existing session IDs BEFORE triggering HE.
+    # Reused TC IDs (e.g. TC-42299) accumulate sessions across runs — fetching the
+    # 100 most recent sessions would include old runs. By capturing IDs now and passing
+    # them as exclude_ids, we avoid any timezone-sensitive timestamp comparison.
+    from rca import _fetch_sessions_by_tc_ids as _snap_sessions
+    pre_existing_sids: set = set()
+    if tc_internal_ids:
+        pre_existing_sids = {s["session_id"] for s in _snap_sessions(tc_internal_ids)}
+        log.info(f"[poll] Pre-existing session IDs (will be excluded): {pre_existing_sids or 'none'}")
+
+    job_id, job_link, tm_report_url = phase3_trigger_he(test_cases)
+
     # Persist HE job
     if job_id:
         record_he_job("flow2", job_id, job_link, tm_report_url=tm_report_url)
 
         # Wait for HE job to finish before fetching results / running RCA
-        poll_he_job(job_id, tc_internal_ids, timeout=1800, log=log, start_time=he_start_time)
+        poll_he_job(job_id, tc_internal_ids, timeout=1800, log=log, exclude_ids=pre_existing_sids)
 
         # Give HE 30s grace period — "completed" sessions may still have a retry
         # in flight; waiting ensures the retry result is visible in the sessions API
@@ -800,7 +806,7 @@ if __name__ == "__main__":
         time.sleep(30)
 
         # Override run_history with actual HE pass/fail (not kane-cli Phase 1 status)
-        update_history_from_he(SESSION_BUILD_NAME, flow="flow2", log=log, tc_to_sc=tc_to_sc, start_time=he_start_time)
+        update_history_from_he(SESSION_BUILD_NAME, flow="flow2", log=log, tc_to_sc=tc_to_sc, exclude_ids=pre_existing_sids)
 
         # Give LT insights engine time to index the completed HE sessions.
         # The automation sessions API indexes fast (used above), but the insights
@@ -809,7 +815,7 @@ if __name__ == "__main__":
         time.sleep(120)
 
         # RCA only for failed test sessions (skips automatically if triggered=0)
-        run_rca(job_id, build_name=SESSION_BUILD_NAME, log=log, tc_to_sc=tc_to_sc, start_time=he_start_time)
+        run_rca(job_id, build_name=SESSION_BUILD_NAME, log=log, tc_to_sc=tc_to_sc, exclude_ids=pre_existing_sids)
 
     # Build traceability matrix after HE results are in
     run_traceability(log)
