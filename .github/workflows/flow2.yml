@@ -116,8 +116,21 @@ jobs:
           RUN_ID=$(gh run list --workflow=flow2.yml --branch=main --status=success --limit=5 --json databaseId,name -q \
             "[.[] | select(.name | startswith(\"Agentic SDLC\"))][0].databaseId" 2>/dev/null || echo "")
           if [ -n "$RUN_ID" ]; then
-            echo "Restoring from run $RUN_ID (pattern: $ARTIFACT_PATTERN)"
-            gh run download "$RUN_ID" --name "$ARTIFACT_PATTERN" --dir /tmp/prev-artifacts 2>/dev/null || true
+            # gh run download --name requires an exact name, not a glob.
+            # Resolve the exact artifact name from the run's artifact list first.
+            EXACT_NAME=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name | startswith(\"${ARTIFACT_PATTERN%%-*}-\")) | .name" \
+              2>/dev/null | grep "^${ARTIFACT_PATTERN/\*/}" | head -1 || echo "")
+            # Fallback: list all artifact names and grep for the prefix
+            if [ -z "$EXACT_NAME" ]; then
+              EXACT_NAME=$(gh api "repos/${{ github.repository }}/actions/runs/${RUN_ID}/artifacts" \
+                --jq '.artifacts[].name' 2>/dev/null \
+                | grep "^${ARTIFACT_PATTERN%\**}" | head -1 || echo "")
+            fi
+            echo "Restoring from run $RUN_ID — artifact: ${EXACT_NAME:-none found}"
+            if [ -n "$EXACT_NAME" ]; then
+              gh run download "$RUN_ID" --name "$EXACT_NAME" --dir /tmp/prev-artifacts 2>/dev/null || true
+            fi
             HIST=$(find /tmp/prev-artifacts -name "run_history.json" | head -1)
             [ -n "$HIST" ] && cp "$HIST" ci/run_history.json && echo "Restored run_history.json"
             REQS=$(find /tmp/prev-artifacts -name "analyzed_requirements.json" | head -1)
