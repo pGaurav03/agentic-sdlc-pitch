@@ -166,51 +166,6 @@ def tm_request(method, path, payload=None):
     return api_request(method, f"{TM_API}{path}", payload)
 
 
-def _validate_environment(env_id: int) -> None:
-    """
-    Check that the TM environment exists and has at least one browser/OS
-    configuration. Environments without configs cause the HE trigger to
-    panic with 'index out of range [0] with length 0' on the TM backend.
-    Exits with a clear error if misconfigured. Skips silently on API errors
-    so unknown endpoint formats never block a valid run.
-    """
-    try:
-        for path in (f"/environments/{env_id}", f"/projects/{PROJECT_ID}/environments/{env_id}"):
-            try:
-                data = tm_request("GET", path)
-            except urllib.error.HTTPError as e:
-                if e.code == 404:
-                    continue   # try next path
-                break          # unexpected error — stop trying, don't block
-            d = data.get("data") or {}
-            if not d:
-                continue       # empty response — try next path
-            configs = (
-                d.get("configurations") or
-                d.get("configs") or
-                d.get("browsers") or
-                d.get("settings") or
-                []
-            )
-            if not configs:
-                print(
-                    f"\n  ERROR: Environment {env_id} has no browser/OS configurations.\n"
-                    "  This is why HyperExecute fails with HTTP 500 (index out of range).\n"
-                    "\n"
-                    "  Fix:\n"
-                    "    1. Go to Test Manager → Environments\n"
-                    f"    2. Open environment ID {env_id}\n"
-                    "    3. Add at least one browser + OS configuration\n"
-                    "       (e.g. Chrome 120 on Windows 10)\n"
-                    "    4. Re-run the pipeline.\n",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-            # Environment found and has configs — all good
-            return
-    except Exception:
-        pass   # validation unavailable — proceed and let HE trigger surface the error
-
 
 def run_kane(sc):
     """Run a single kane-cli objective. Streams NDJSON events in real-time. Returns (status, session_id, failure_detail)."""
@@ -692,11 +647,9 @@ def phase3_trigger_he(test_cases):
     print(f"       TM Report  : {tm_report_url}")
 
     # Step 3b: Link instances with environment
-    # environment_id MUST be at the top level of the PUT body (run level).
-    # Per-instance placement is silently ignored by the TM backend, leaving the
-    # run with no environment config → any subsequent call panics with
-    # "index out of range [0] with length 0" → HE trigger 500.
+    # Per the TM API docs, environment_id is set per-instance inside test_run_instances.
     print(f"  [3b] Linking {len(instances)} instance(s) with environment {ENVIRONMENT_ID}...")
+    instances_with_env = [{**inst, "environment_id": ENVIRONMENT_ID} for inst in instances]
     put_payload = {
         "id":                  test_run_id,
         "title":               BUILD_NAME,
@@ -704,10 +657,9 @@ def phase3_trigger_he(test_cases):
         "objective":           "Agentic SDLC pitch — KaneAI Flow 2 end-to-end pipeline",
         "is_auteur_generated": True,
         "tags":                ["agentic-sdlc", "kaneai", "flow2"],
-        "environment_id":      ENVIRONMENT_ID,
-        "test_run_instances":  instances,
+        "test_run_instances":  instances_with_env,
     }
-    print(f"       PUT /test-run/{test_run_id} — environment_id={ENVIRONMENT_ID} (top-level), instances={len(instances)}")
+    print(f"       PUT /test-run/{test_run_id} — environment_id={ENVIRONMENT_ID} (per-instance), instances={len(instances_with_env)}")
     link_resp = tm_request("PUT", f"/test-run/{test_run_id}", put_payload)
     link_msg = link_resp.get("message", "")
     link_success = link_resp.get("success", link_resp.get("status", ""))
@@ -715,9 +667,7 @@ def phase3_trigger_he(test_cases):
     if not link_msg and not link_success:
         print(f"       Full response: {link_resp}")
 
-    # Step 3c: Validate environment then trigger HyperExecute
-    print(f"  [3c] Validating environment {ENVIRONMENT_ID}...")
-    _validate_environment(ENVIRONMENT_ID)
+    # Step 3c: Trigger HyperExecute
     print("  [3c] Triggering HyperExecute...")
     he_payload = {
         "test_run_id":      test_run_id,
@@ -725,6 +675,16 @@ def phase3_trigger_he(test_cases):
         "retry_on_failure": True,
         "max_retries":      1,
     }
+    _ENV_CONFIG_MSG = (
+        f"\n  ERROR: HyperExecute trigger rejected the request — environment {ENVIRONMENT_ID} "
+        "has no browser/OS configurations.\n"
+        "\n"
+        "  Fix:\n"
+        "    1. Go to Test Manager → Environments\n"
+        f"    2. Open environment ID {ENVIRONMENT_ID}\n"
+        "    3. Add at least one browser + OS configuration (e.g. Chrome 120 on Windows 10)\n"
+        "    4. Re-run the pipeline.\n"
+    )
     he_resp = {}
     _MAX_HE_ATTEMPTS = 5
     for _attempt in range(1, _MAX_HE_ATTEMPTS + 1):
@@ -732,23 +692,16 @@ def phase3_trigger_he(test_cases):
             he_resp = api_request("POST", HE_API, he_payload)
             break
         except urllib.error.HTTPError as exc:
+            if exc.code == 422:
+                # 422 = invalid payload or empty environment configs — not retriable
+                print(_ENV_CONFIG_MSG, file=sys.stderr)
+                sys.exit(1)
             if exc.code >= 500 and _attempt < _MAX_HE_ATTEMPTS:
                 print(f"  [3c] HE trigger HTTP {exc.code} (attempt {_attempt}/{_MAX_HE_ATTEMPTS}) — retrying in 30s...")
                 time.sleep(30)
             else:
-                if exc.code == 500:
-                    print(
-                        f"\n  ERROR: HyperExecute trigger failed with HTTP 500 after {_MAX_HE_ATTEMPTS} attempts.\n"
-                        "  Most likely cause: environment has no browser/OS configurations.\n"
-                        "\n"
-                        "  Fix:\n"
-                        "    1. Go to Test Manager → Environments\n"
-                        f"    2. Open environment ID {ENVIRONMENT_ID}\n"
-                        "    3. Add at least one browser + OS configuration\n"
-                        "       (e.g. Chrome 120 on Windows 10)\n"
-                        "    4. Re-run the pipeline.\n",
-                        file=sys.stderr,
-                    )
+                if exc.code >= 500:
+                    print(_ENV_CONFIG_MSG, file=sys.stderr)
                     sys.exit(1)
                 raise
 

@@ -28,6 +28,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: flow2-${{ github.ref }}
+  cancel-in-progress: false   # let the current run finish; queue the next one
+
 env:
   PYTHON_VERSION: "3.11"
 
