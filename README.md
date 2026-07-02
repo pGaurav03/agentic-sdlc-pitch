@@ -296,20 +296,19 @@ These three are the only required configuration. Without them the pipeline canno
 
 These are entered at **Actions → Agentic SDLC → Run workflow** — the pipeline refuses to start without them.
 
-| Input | Description | How to find it |
-|-------|-------------|----------------|
-| `tm_project_id` | Test Manager project ID (ULID) | KaneAI → your project → copy from URL |
-| `tm_environment_id` | Test environment ID (integer) | Test Manager → Environments → your environment ID |
+| Input | Required | Description | How to find it |
+|-------|----------|-------------|----------------|
+| `tm_project_id` | ✅ Yes | Test Manager project ID (ULID) | KaneAI → your project → copy from URL |
+| `tm_environment_id` | ✅ Yes | Test environment ID (integer) | Test Manager → Environments → your environment ID |
+| `kane_folder_id` | ⚠️ Recommended | KaneAI folder ID (ULID) inside your project | KaneAI → your project → folder → copy from URL |
+
+> **Why `kane_folder_id` matters:** kane-cli saves authored test cases to a specific folder. If you set `tm_project_id` but don't set `kane_folder_id`, kane-cli falls back to its auto-selected folder which may belong to a **different project** — test cases end up in the wrong place and Phase 2 finds nothing.
+>
+> If you have a `KANE_FOLDER_ID` repository secret set, the workflow uses that automatically and you don't need to enter it every run.
 
 ### 3. Configure kane-cli for your project
 
-```bash
-kane-cli login --username $LT_USERNAME --access-key $LT_ACCESS_KEY
-kane-cli config project YOUR_TM_PROJECT_ID
-kane-cli config folder  YOUR_TM_FOLDER_ID   # optional: scope to a folder
-```
-
-Update the `kane-cli config project` step in `.github/workflows/flow2.yml` with your project ID.
+No manual configuration needed — the workflow handles it automatically using your workflow inputs.
 
 ### 4. Update objectives
 
