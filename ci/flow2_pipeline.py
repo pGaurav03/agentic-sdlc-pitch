@@ -728,20 +728,6 @@ if __name__ == "__main__":
     log.phase("FLOW 2 — KaneAI → Test Manager → HyperExecute API")
     log.info(f"Build: {BUILD_NAME}")
     log.info(f"Project: kane-agentic ({PROJECT_ID})")
-
-    # Resolve environment ID — auto-discover from project if TM_ENVIRONMENT_ID not set
-    global ENVIRONMENT_ID
-    if not ENVIRONMENT_ID:
-        log.info(f"[config] TM_ENVIRONMENT_ID not set — auto-discovering environments for project {PROJECT_ID}...")
-        ENVIRONMENT_ID = _discover_environment_id()
-        if not ENVIRONMENT_ID:
-            log.error(
-                "TM_ENVIRONMENT_ID is not set and auto-discovery found no environments for this project.\n"
-                "Set it as a GitHub repo variable: Settings → Secrets and variables → Actions → Variables\n"
-                "Find it in Test Manager → Environments → your environment → ID in the API response."
-            )
-            sys.exit(1)
-
     log.info(f"Environment: {ENVIRONMENT_ID}")
 
     # ── Self-heal: rewrite objectives that failed last run ────────────────────
