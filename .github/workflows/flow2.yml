@@ -88,13 +88,20 @@ jobs:
 
       - name: Configure kane-cli
         env:
-          LT_USERNAME:   ${{ secrets.LT_USERNAME }}
-          LT_ACCESS_KEY: ${{ secrets.LT_ACCESS_KEY }}
+          LT_USERNAME:    ${{ secrets.LT_USERNAME }}
+          LT_ACCESS_KEY:  ${{ secrets.LT_ACCESS_KEY }}
+          KANE_FOLDER_ID: ${{ secrets.KANE_FOLDER_ID }}
         run: |
           kane-cli login --username "$LT_USERNAME" --access-key "$LT_ACCESS_KEY"
           kane-cli install skill
           kane-cli config project ${{ inputs.tm_project_id || vars.TM_PROJECT_ID || '01KVXJ82AKT83GWJNFZTQVMNRQ' }}
-          kane-cli config folder  ${{ secrets.KANE_FOLDER_ID }}
+          # KANE_FOLDER_ID is optional — kane-cli auto-selects a folder on login.
+          # Only override if the secret is explicitly set.
+          if [ -n "$KANE_FOLDER_ID" ]; then
+            kane-cli config folder "$KANE_FOLDER_ID"
+          else
+            echo "KANE_FOLDER_ID not set — using kane-cli auto-selected folder"
+          fi
           kane-cli whoami
 
       - name: Ensure output directories
