@@ -159,6 +159,7 @@ def api_request(method, url, payload=None):
     except urllib.error.HTTPError as e:
         body = e.read().decode()
         print(f"  HTTP {e.code} on {method} {url}: {body}", file=sys.stderr)
+        e.response_body = body   # attach for callers — stream is consumed, can't re-read
         raise
 
 
@@ -610,6 +611,103 @@ def poll_he_job(job_id: str, tc_internal_ids: set, timeout: int = 1800, log=None
     return "timeout"
 
 
+def _find_env_info(env_id: int):
+    """
+    Scan GET /environments to find the group and config for env_id.
+    env_id can be a group id OR an env config id.
+    Returns (group, env_config) dicts or (None, None).
+    """
+    for page in range(1, 20):
+        try:
+            data = tm_request("GET", f"/environments?limit=200&page={page}")
+        except Exception:
+            break
+        for group in data.get("data", []):
+            if group.get("id") == env_id:
+                envs = group.get("environments", [])
+                return group, envs[0] if envs else {}
+            for e in group.get("environments", []):
+                if e.get("environment_id") == env_id:
+                    return group, e
+        pagination = data.get("pagination") or {}
+        if page >= pagination.get("last_page", page):
+            break
+    return None, None
+
+
+_WORKING_ENV_FILE = Path(__file__).parent / ".working_env_id"
+
+
+def ensure_working_env(user_env_id: int) -> int:
+    """
+    Validate the user-provided environment and return a working env id for HE.
+
+    TM environments created via the KaneAI UI (is_custom=False, non-null os_id)
+    cause TM's backend to panic when HE builds its run config. This function:
+      1. If no env_id provided, checks ci/.working_env_id (persisted from a previous run).
+      2. Checks if the resolved env_id is HE-compatible (is_custom=True, os_id=null).
+      3. If not compatible, creates a new working env via POST /environments and saves
+         its id to ci/.working_env_id so the next run reuses it automatically.
+    """
+    # Step 1: resolve env_id — prefer user input, fall back to persisted file
+    if not user_env_id:
+        if _WORKING_ENV_FILE.exists():
+            try:
+                saved = int(_WORKING_ENV_FILE.read_text().strip())
+                print(f"  [3b] No env_id provided — using saved working env: {saved}")
+                user_env_id = saved
+            except Exception:
+                pass
+        if not user_env_id:
+            print("  [3b] No environment ID provided and no saved env found — creating one...")
+
+    # Step 2: check compatibility
+    os_name, browser, browser_ver = "Windows 10", "Chrome", "149.0"
+    if user_env_id:
+        print(f"  [3b] Checking environment {user_env_id} compatibility...")
+        group, env = _find_env_info(user_env_id)
+        if group and env and group.get("is_custom") is True and env.get("os_id") is None:
+            print(f"       ✓ Env {user_env_id} is compatible — using as-is")
+            return user_env_id
+        os_name     = (env or {}).get("os", "Windows 10") or "Windows 10"
+        browser     = (env or {}).get("browser", "Chrome") or "Chrome"
+        browser_ver = (env or {}).get("browser_version", "149.0") or "149.0"
+        if group:
+            print(f"       ✗ Env {user_env_id} is not HE-compatible "
+                  f"(group {group.get('id')}: is_custom={group.get('is_custom')}, "
+                  f"os_id={env.get('os_id') if env else 'n/a'}) — creating new env...")
+        else:
+            print(f"       ✗ Env {user_env_id} not found — creating new env...")
+            os_name, browser, browser_ver = "Windows 10", "Chrome", "149.0"
+
+    # Step 3: create a working env and persist the id
+    ts = datetime.now().strftime("%d%m%Y-%H%M%S")
+    resp = tm_request("POST", "/environments", {
+        "platform": "desktop",
+        "configurations": [{
+            "Name": f"agentic-sdlc-{ts}",
+            "environments": [{
+                "os":              os_name,
+                "browser":         browser,
+                "browser_version": browser_ver,
+                "resolution":      "1440x900",
+            }]
+        }]
+    })
+    env_ids = resp.get("environment_id", []) if resp else []
+    if env_ids:
+        new_id = env_ids[0]
+        _WORKING_ENV_FILE.write_text(str(new_id))
+        print(f"       ✓ Created working env: {new_id} ({browser} / {os_name})")
+        print(f"       ✓ Saved to ci/.working_env_id — will be reused automatically next run")
+        return new_id
+
+    # Step 4: fallback — use original (may fail, but let HE surface the error)
+    print(f"       ✗ Could not create env — proceeding with {user_env_id} (may fail)",
+          file=sys.stderr)
+    return user_env_id or 0
+
+
 def phase3_trigger_he(test_cases):
     print("\n" + "="*60)
     print("PHASE 3 — Creating test run + triggering HyperExecute")
@@ -646,10 +744,12 @@ def phase3_trigger_he(test_cases):
     print(f"       test_run_id: {test_run_id}")
     print(f"       TM Report  : {tm_report_url}")
 
-    # Step 3b: Link instances with environment
-    # Per the TM API docs, environment_id is set per-instance inside test_run_instances.
-    print(f"  [3b] Linking {len(instances)} instance(s) with environment {ENVIRONMENT_ID}...")
-    instances_with_env = [{**inst, "environment_id": ENVIRONMENT_ID} for inst in instances]
+    # Step 3b: Validate env + link instances
+    # Checks if the user-provided env is HE-compatible (is_custom=True, os_id=null).
+    # If not, creates a working env at runtime and tells the user to reuse it next run.
+    env_id = ensure_working_env(ENVIRONMENT_ID)
+    print(f"  [3b] Linking {len(instances)} instance(s) with environment {env_id}...")
+    instances_with_env = [{**inst, "environment_id": env_id} for inst in instances]
     put_payload = {
         "id":                  test_run_id,
         "title":               BUILD_NAME,
@@ -659,7 +759,7 @@ def phase3_trigger_he(test_cases):
         "tags":                ["agentic-sdlc", "kaneai", "flow2"],
         "test_run_instances":  instances_with_env,
     }
-    print(f"       PUT /test-run/{test_run_id} — environment_id={ENVIRONMENT_ID} (per-instance), instances={len(instances_with_env)}")
+    print(f"       PUT /test-run/{test_run_id} — environment_id={env_id} (per-instance), instances={len(instances_with_env)}")
     link_resp = tm_request("PUT", f"/test-run/{test_run_id}", put_payload)
     link_msg = link_resp.get("message", "")
     link_success = link_resp.get("success", link_resp.get("status", ""))
@@ -676,12 +776,12 @@ def phase3_trigger_he(test_cases):
         "max_retries":      1,
     }
     _ENV_CONFIG_MSG = (
-        f"\n  ERROR: HyperExecute trigger rejected the request — environment {ENVIRONMENT_ID} "
+        f"\n  ERROR: HyperExecute trigger rejected the request — environment {env_id} "
         "has no browser/OS configurations.\n"
         "\n"
         "  Fix:\n"
         "    1. Go to Test Manager → Environments\n"
-        f"    2. Open environment ID {ENVIRONMENT_ID}\n"
+        f"    2. Open environment ID {env_id}\n"
         "    3. Add at least one browser + OS configuration (e.g. Chrome 120 on Windows 10)\n"
         "    4. Re-run the pipeline.\n"
     )
@@ -692,8 +792,14 @@ def phase3_trigger_he(test_cases):
             he_resp = api_request("POST", HE_API, he_payload)
             break
         except urllib.error.HTTPError as exc:
-            if exc.code == 422:
-                # 422 = invalid payload or empty environment configs — not retriable
+            _body = getattr(exc, "response_body", "")
+            _is_empty_env = (
+                "index out of range" in _body or
+                "empty configurations" in _body or
+                exc.code == 422
+            )
+            if _is_empty_env:
+                # Not retriable — environment has no browser/OS configs
                 print(_ENV_CONFIG_MSG, file=sys.stderr)
                 sys.exit(1)
             if exc.code >= 500 and _attempt < _MAX_HE_ATTEMPTS:
@@ -705,8 +811,8 @@ def phase3_trigger_he(test_cases):
                     sys.exit(1)
                 raise
 
-    job_id   = he_resp.get("job_id")
-    job_link = he_resp.get("job_link")
+    job_id   = he_resp.get("job_id") or he_resp.get("app_job_id", "")
+    job_link = he_resp.get("job_link") or he_resp.get("mobile_job_link", "")
 
     print(f"\n{'='*60}")
     print(f"  Job ID     : {job_id}")

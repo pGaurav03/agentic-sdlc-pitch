@@ -24,8 +24,8 @@ on:
         required: true
         type: string
       tm_environment_id:
-        description: "TM Environment ID (integer) — find it in Test Manager → Environments → your environment ID. e.g. 282603"
-        required: true
+        description: "TM Environment ID (integer) — find it in Test Manager → Environments. Leave blank to auto-create a working env. If you see '⚠ SAVE THIS FOR YOUR NEXT RUN' in logs, copy that ID here."
+        required: false
         type: string
       kane_folder_id:
         description: "KaneAI Folder ID (ULID) — find it in KaneAI → your project → folder → URL. Must belong to the same project as tm_project_id. Leave blank to use KANE_FOLDER_ID secret."
@@ -54,8 +54,8 @@ jobs:
             exit 1
           fi
           if [ -z "${{ inputs.tm_environment_id }}" ]; then
-            echo "ERROR: tm_environment_id is required. Go to Actions → Run workflow and enter your TM Environment ID (integer)."
-            exit 1
+            echo "INFO: tm_environment_id not provided — pipeline will auto-create a compatible environment."
+            echo "      Check logs for '⚠ SAVE THIS FOR YOUR NEXT RUN' to reuse it in future runs."
           fi
 
       - uses: actions/checkout@v4
@@ -165,6 +165,10 @@ jobs:
             # kane-cli is skipped entirely and the existing test case is reused.
             TCS=$(find /tmp/prev-artifacts -name "tm_test_cases.json" | head -1)
             [ -n "$TCS" ] && cp "$TCS" ci/tm_test_cases.json && echo "Restored tm_test_cases.json"
+            # Restore working env id — auto-created on first run, reused on subsequent runs
+            # so fork users never need to manually look up or copy an env id.
+            WENV=$(find /tmp/prev-artifacts -name ".working_env_id" | head -1)
+            [ -n "$WENV" ] && cp "$WENV" ci/.working_env_id && echo "Restored .working_env_id"
             # Custom URL runs only: restore healed objectives so cross-run heal and
             # hash-skip work across runs for the same URL. Default runs get objectives
             # from the repo (kept fresh by auto-improve commits) — never restored here.
@@ -305,4 +309,5 @@ jobs:
             requirements/analyzed_requirements.json
             requirements/.requirements_hash
             ci/.objectives_hash
+            ci/.working_env_id
           retention-days: 30
