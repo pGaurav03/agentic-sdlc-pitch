@@ -48,7 +48,7 @@ AUTH = "Basic " + base64.b64encode(f"{LT_USERNAME}:{LT_ACCESS_KEY}".encode()).de
 TM_API        = "https://test-manager-api.lambdatest.com/api/v1"
 HE_API        = "https://test-manager-api.lambdatest.com/api/atm/v1/hyperexecute"
 PROJECT_ID     = os.environ.get("TM_PROJECT_ID", "").strip() or "01KVXJ82AKT83GWJNFZTQVMNRQ"
-ENVIRONMENT_ID = int(os.environ.get("TM_ENVIRONMENT_ID", "").strip() or "282603")
+ENVIRONMENT_ID = int(os.environ.get("TM_ENVIRONMENT_ID", "").strip() or "0")  # 0 = auto-discover at runtime
 # BASE_URL: read from analyzed_requirements.json if available, else extract from first objective
 def _resolve_base_url() -> str:
     analyzed = Path(__file__).parent.parent / "requirements" / "analyzed_requirements.json"
@@ -164,6 +164,26 @@ def api_request(method, url, payload=None):
 
 def tm_request(method, path, payload=None):
     return api_request(method, f"{TM_API}{path}", payload)
+
+
+def _discover_environment_id() -> int:
+    """
+    Fetch environments for PROJECT_ID from TM API and return the first one's ID.
+    Returns 0 if none found so the caller can emit a helpful error.
+    """
+    for path in (f"/projects/{PROJECT_ID}/environments", f"/environments?project_id={PROJECT_ID}"):
+        try:
+            data = tm_request("GET", path)
+            envs = data.get("data") or data.get("environments") or data.get("results") or []
+            if isinstance(envs, list) and envs:
+                env    = envs[0]
+                env_id = env.get("id") or env.get("environment_id")
+                if env_id:
+                    print(f"[config] Auto-discovered environment '{env.get('name', env_id)}' (ID={env_id})")
+                    return int(env_id)
+        except Exception:
+            pass
+    return 0
 
 
 def run_kane(sc):
@@ -659,9 +679,10 @@ def phase3_trigger_he(test_cases):
     })
     print(f"       {link_resp.get('message', link_resp)}")
 
-    # Step 3c: Trigger HyperExecute
+    # Step 3c: Trigger HyperExecute (retry up to 3× on 5xx — TM backend can panic if
+    # code-generation for newly authored test cases is still indexing)
     print("  [3c] Triggering HyperExecute...")
-    he_resp = api_request("POST", HE_API, {
+    he_payload = {
         "test_run_id":      test_run_id,
         "concurrency":      5,
         "title":            BUILD_NAME,
@@ -670,7 +691,18 @@ def phase3_trigger_he(test_cases):
         "report_enabled":   True,
         "console_log":      True,
         "network_logs":     True,
-    })
+    }
+    he_resp = {}
+    for _attempt in range(1, 4):
+        try:
+            he_resp = api_request("POST", HE_API, he_payload)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code >= 500 and _attempt < 3:
+                print(f"  [3c] HE trigger HTTP {exc.code} (attempt {_attempt}/3) — waiting 20s before retry...")
+                time.sleep(20)
+            else:
+                raise
 
     job_id   = he_resp.get("job_id")
     job_link = he_resp.get("job_link")
@@ -696,7 +728,21 @@ if __name__ == "__main__":
     log.phase("FLOW 2 — KaneAI → Test Manager → HyperExecute API")
     log.info(f"Build: {BUILD_NAME}")
     log.info(f"Project: kane-agentic ({PROJECT_ID})")
-    log.info(f"Environment: {ENVIRONMENT_ID} (Windows Config — Win10, Firefox 150)")
+
+    # Resolve environment ID — auto-discover from project if TM_ENVIRONMENT_ID not set
+    global ENVIRONMENT_ID
+    if not ENVIRONMENT_ID:
+        log.info(f"[config] TM_ENVIRONMENT_ID not set — auto-discovering environments for project {PROJECT_ID}...")
+        ENVIRONMENT_ID = _discover_environment_id()
+        if not ENVIRONMENT_ID:
+            log.error(
+                "TM_ENVIRONMENT_ID is not set and auto-discovery found no environments for this project.\n"
+                "Set it as a GitHub repo variable: Settings → Secrets and variables → Actions → Variables\n"
+                "Find it in Test Manager → Environments → your environment → ID in the API response."
+            )
+            sys.exit(1)
+
+    log.info(f"Environment: {ENVIRONMENT_ID}")
 
     # ── Self-heal: rewrite objectives that failed last run ────────────────────
     if not args.skip_phase1:
