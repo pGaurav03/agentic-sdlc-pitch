@@ -453,9 +453,11 @@ def phase1_run_objectives(objectives=None):
                 healed_obj = heal_single_objective(sc, failure_detail, log)
                 if not healed_obj:
                     break
-                log.info(f"[{sc['id']}] ── inline heal objective comparison (attempt {heal_attempt}) ──")
-                log.info(f"[{sc['id']}]   BEFORE: {original_obj}")
-                log.info(f"[{sc['id']}]   AFTER : {healed_obj}")
+                log.warning(f"[{sc['id']}] {'='*56}")
+                log.warning(f"[{sc['id']}] CLAUDE INLINE HEAL — attempt {heal_attempt}/2")
+                log.warning(f"[{sc['id']}]   BEFORE: {original_obj}")
+                log.warning(f"[{sc['id']}]   AFTER : {healed_obj}")
+                log.warning(f"[{sc['id']}] {'='*56}")
                 sc_retry = {**sc, "objective": healed_obj}
                 s2, sid2, fd2 = run_kane(sc_retry)
                 if s2 == "passed":
@@ -814,12 +816,27 @@ def phase3_trigger_he(test_cases):
     job_id   = he_resp.get("job_id") or he_resp.get("app_job_id", "")
     job_link = he_resp.get("job_link") or he_resp.get("mobile_job_link", "")
 
+    # TM creates a "Copy of <title>" execution test run when HE starts.
+    # Log the full response so we can identify the field name on the first run.
+    print(f"  [3c] HE trigger response keys: {list(he_resp.keys())}")
+    exec_run_id = (
+        he_resp.get("test_run_id") or
+        he_resp.get("execution_run_id") or
+        he_resp.get("run_id") or
+        he_resp.get("copy_run_id") or
+        ""
+    )
+    if exec_run_id and exec_run_id != test_run_id:
+        exec_report_url = f"https://test-manager.lambdatest.com/projects/{PROJECT_ID}/test-run/{exec_run_id}?type=report"
+        print(f"  [3c] Execution test run detected: {exec_run_id}")
+        tm_report_url = exec_report_url
+
     print(f"\n{'='*60}")
     print(f"  Job ID     : {job_id}")
     print(f"  Job Link   : {job_link}")
     print(f"  TM Report  : {tm_report_url}")
     print(f"{'='*60}")
-    return job_id, job_link, tm_report_url
+    return job_id, job_link, tm_report_url, test_run_id
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -920,7 +937,7 @@ if __name__ == "__main__":
             tc_internal_ids.add(internal)
     log.info(f"[poll] TC→SC mapping: {tc_to_sc}")
 
-    job_id, job_link, tm_report_url = phase3_trigger_he(test_cases)
+    job_id, job_link, tm_report_url, _orig_run_id = phase3_trigger_he(test_cases)
 
     # Persist HE job
     if job_id:

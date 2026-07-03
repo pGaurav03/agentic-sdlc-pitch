@@ -105,6 +105,7 @@ def build_matrix() -> dict:
             "sc_id":            sc_id,
             "sc_name":          obj.get("name", sc_id),
             "objective":        obj.get("objective", ""),
+            "healed_from":      obj.get("healed_from", ""),
             "tm_id":            tm_id,
             "tc_internal":      tc_internal,
             "tc_link":          tc_link,
@@ -217,7 +218,10 @@ def write_markdown(matrix: dict) -> str:
         "| -- | ------------- | --------- |",
     ]
     for r in rows:
-        lines.append(f"| {r['sc_id']} | {r.get('sc_name', r['sc_id'])} | {r.get('objective', '—')} |")
+        obj_text    = r.get("objective", "—")
+        healed_from = r.get("healed_from", "")
+        obj_cell    = f"~~{healed_from}~~ → {obj_text}" if healed_from else obj_text
+        lines.append(f"| {r['sc_id']} | {r.get('sc_name', r['sc_id'])} | {obj_cell} |")
 
     # ── Failed Scenarios RCA ──────────────────────────────────────────────────
     # Show authoring failures and execution failures in separate subsections
