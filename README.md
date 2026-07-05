@@ -310,7 +310,7 @@ These are entered at **Actions → Agentic SDLC → Run workflow** — the pipel
 
 No manual configuration needed — the workflow handles it automatically using your workflow inputs.
 
-### 4. Update objectives
+### 4. Update objectives.
 
 Replace `ci/objectives.json` with objectives for your app:
 
