@@ -81,7 +81,7 @@ Go to **Actions → Agentic SDLC → Run workflow** and fill in the required fie
 
 ---
 
-## Design Decisions
+## Design Decision
 
 ### Why 3 parallel workers for kane-cli?
 
